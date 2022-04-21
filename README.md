@@ -4,16 +4,17 @@
 
 You need the following data.
 
-For training:
+For training,
 - passage collection: `collection.tsv`
 - query collection for training dataset: `queries.train.tsv`
 - training triples (query, positive passage, negative passage): `triples.train.small.ids.jsonl`
 
-For validation:
+For validation/evaluation,
 - validation triples (query, positive passage, negative passage): `top1000.dev` 
 - query collection for validation dataset: `queries.dev.small.tsv`
 - relevance annotation for validation dataset: `qrels.dev.small.tsv`
 
+You can download data [here]()
 
 **[1] `collection.tsv`**
 
@@ -305,6 +306,9 @@ python -m preprocessing.hard_negatives.construct_new_train_triples \
 ```
 
 ### Step 3-2: Training using Knowledge Distillation
+
+- `🔄 Reproduce` The checkpoint used in our experiments can be downloaded [here (ck_distill-colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing)
+<!-- scp dilab4:/data1/jihyuk/Research/IR/naacl-collective_knowledge-colbert/experiments/finetuned.b36.lr3e6.hn.kd_qe_kmeans_prf/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-150000.dnn ck_distill-colbert.dnn -->
 
 An example bash command for **KD training**:
 ```bash
