@@ -116,7 +116,7 @@ Example)
 
 ## Step 1. Preliminary: Training ColBERT Teacher
 
-- The checkpoint used in our experiments can be downloaded [here (colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing)
+- `🔄 Reproduce` The checkpoint used in our experiments can be downloaded [here (colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing)
 
 An example bash command for **training**:
 ```bash
@@ -175,7 +175,7 @@ CUDA_VISIBLE_DEVICES=0,1 python -m colbert.index_faiss \
 
 ### Step 2-2: Retrieval
 
-- The ranking file for training queries, used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
+- `🔄 Reproduce` The ranking file for training queries, used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
 
 An example bash command for **retrieval, to obtain pseudo-relevance feedback (PRF)**:
 ``` bash
@@ -270,7 +270,7 @@ done
 
 ### Step 2-3: Obtaining Collective Knowledge
 
-- The collective knowledge from PRF (docs=3, clusters=24, k=10, beta=1.0) used in our experiments, can be downloaded [here (colbert.msmarco_pass.train.collective_knowledge.pt)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
+- `🔄 Reproduce` The collective knowledge from PRF (docs=3, clusters=24, k=10, beta=1.0) used in our experiments, can be downloaded [here (colbert.msmarco_pass.train.collective_knowledge.pt)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
 
 An example bash command for **obtaining collective knowledge**:
 ``` bash
