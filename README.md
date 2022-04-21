@@ -291,150 +291,36 @@ CUDA_VISIBLE_DEVICES=0 python \
 ```
 
 
-## Step 3. Train PQA-ColBERT (pseudo-query-aware ColBERT) w/ ColBERT teacher
+## Step 3. Distill Collective Knowledge to ColBERT
 
-### Step 3-1. Fine-tune PQA-ColBERT using BM25 negatives
 
-We adopt the knowledge distillation training framework, similar to [TCT-ColBERT](https://aclanthology.org/2021.repl4nlp-1.17.pdf).
-Different from TCT-ColBERT, our student is PQA-ColBERT that uses pruned tokens, while the teacher is the original ColBERT that uses all tokens as in TCT-ColBERT.
+### Step 3-1: Obtaining Hard Negatives.
 
-An example bash command for training:
+We leverage PRF as hard negatives, to obtain better negative training samples.
+
+An example bash command for **obtaining hard negatives**:
 ```bash
-devices=0,1 # GPU devices used for training
-n_devices=$(echo ${devices} | awk -F "," '{ print NF }')
-echo "n_devices: ${n_devices}" # e.g., "2"
+python -m preprocessing.hard_negatives.construct_new_train_triples \
+--hn_topk 100 --n_triples 40000000 --n_negatives 1 \
+--qrels /path/to/qrels.train.tsv \
+--hn /path/to/colbert.msmarco_pass.train.ranking.jsonl \
+--output /path/to/triples.train.small.ids.hn.jsonl
+```
 
-pruned_index_size=65 # The number of remaining tokens after pruning.
+### Step 3-2: Training using Knowledge Distillation.
 
-pruner_filepath=/path/to/collection.pruner.tsv # e.g., "experiments/qd_pruner/pruner/prune.py/collection.pruner.tsv"
-[ ! -f ${pruner_filepath} ] && echo "${pruner_filepath} does not exist" && return
-teacher_checkpoint=/path/to/colbert-*.dnn # A checkpoint of ColBERT teacher that uses all document tokens for encoding, e.g., "experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-300000.dnn"
-[ ! -f ${teacher_checkpoint} ] && echo "${teacher_checkpoint} does not exist" && return
-triples=/path/to/triples.jsonl # e.g., "data/triples.train.small.ids.jsonl"
-[ ! -f ${triples} ] && echo "${triples} does not exist" && return
-queries=/path/to/queries.train.tsv # e.g., "data/queries.train.tsv"
-[ ! -f ${queries} ] && echo "${queries} does not exist" && return
-collection=/path/to/collection.tsv # e.g., "data/collection.tsv"
-[ ! -f ${collection} ] && echo "${collection} does not exist" && return
-
-CUDA_VISIBLE_DEVICES=${devices} \
-python -m torch.distributed.launch --nproc_per_node=${n_devices} --master_addr 127.0.0.1 --master_port 29500 \
--m colbert.train --maxsteps 200000 --amp --bsize 36 --lr 3e-06 --accum 1 \
---triples ${triples} \
---queries ${queries} --collection ${collection} \
+An example bash command for **KD training**:
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+python -m torch.distributed.launch --nproc_per_node=2 --master_addr 127.0.0.1 --master_port 29500 \
+-m colbert.train --maxsteps 600000 --amp --bsize 36 --lr 3e-06 --accum 1 \
 --doc_maxlen 180 --mask-punctuation --similarity l2 \
---root experiments/pqa_colbert-b36-lr3e6 --experiment MSMARCO-psg --run msmarco.psg.l2 \
---teacher_checkpoint ${teacher_checkpoint} --knowledge_distillation --kd_temperature 0.25 \
---prune_tokens --pruner_filepath ${pruner_filepath} --pruned_index_size ${pruned_index_size} --pseudo_query_indicator
+--root experiments/ck_distill-colbert-b36-lr3e6 --experiment MSMARCO-psg --run msmarco.psg.l2 \
+--knowledge_distillation --kd_temperature 0.25 --kd_query_expansion \
+--triples /path/to/triples.train.small.ids.hn.jsonl \
+--checkpoint /path/to/colbert.dnn \
+--queries /path/to/queries.train.tsv \
+--collection /path/to/collection.tsv \
+--teacher_checkpoint /path/to/colbert.dnn \
+--kd_expansion_pt /path/to/colbert.msmarco_pass.train.collective_knowledge.pt
 ```
-
-An example bash command for validation (on re-ranking task):
-```bash
-#!/bin/bash
-pruned_index_size=65 # The number of remaining tokens after pruning.
-
-checkpoint=/path/to/colbert-*.dnn # A checkpoint for validation, e.g., "experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-200000.dnn"
-[ ! -f "${checkpoint}" ] && echo "${checkpoint} does not exist." && return
-
-pruner_filepath=/path/to/collection.pruner.tsv # e.g., "experiments/qd_pruner/pruner/prune.py/collection.pruner.tsv"
-[ ! -f ${pruner_filepath} ] && echo "${pruner_filepath} does not exist" && return
-queries=/path/to/queries.train.tsv # e.g., "data/queries.train.tsv"
-[ ! -f ${queries} ] && echo "${queries} does not exist" && return
-collection=/path/to/collection.tsv # e.g., "data/collection.tsv"
-[ ! -f ${collection} ] && echo "${collection} does not exist" && return
-qrels=/path/to/qrels.dev.small.tsv # e.g., "data/msmarco-pass/qrels.dev.small.tsv"
-[ ! -f "${qrels}" ] && echo "${qrels} does not exist." && return
-topk=/path/to/top1000.dev # e.g., "data/msmarco-pass/top1000.dev"
-[ ! -f "${topk}" ] && echo "${topk} does not exist." && return
-
-CUDA_VISIBLE_DEVICES=0 \
-python -m colbert.test --checkpoint ${checkpoint} \
---prune_tokens --pruner_filepath ${pruner_filepath} --pruned_index_size ${pruned_index_size} --pseudo_query_indicator \
---amp --doc_maxlen 180 --mask-punctuation \
---collection ${collection} --queries ${queries} --qrels ${qrels} --topk ${topk} \
---root experiments/pqa_colbert-b36-lr3e6 --experiment MSMARCO-psg
-```
-
-An example bash command for evaluation (on end-to-end ranking task):
-- Step 1. indexing: indexing documents using FAISS. 
-```bash
-#!/bin/bash
-pruned_index_size=65 # The number of remaining tokens after pruning.
-
-checkpoint=/path/to/colbert-*.dnn # The best checkpoint, e.g., "experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-200000.dnn"
-[ ! -f "${checkpoint}" ] && echo "${checkpoint} does not exist." && return
-pruner_filepath=/path/to/collection.pruner.tsv # e.g., "experiments/qd_pruner/pruner/prune.py/collection.pruner.tsv"
-[ ! -f ${pruner_filepath} ] && echo "${pruner_filepath} does not exist" && return
-collection=/path/to/collection.tsv # e.g., "data/collection.tsv"
-[ ! -f ${collection} ] && echo "${collection} does not exist" && return
-
-index_root=experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/index.py
-
-# index
-CUDA_VISIBLE_DEVICES=0,1,2,3 OMP_NUM_THREADS=4 \
-python -m torch.distributed.launch --nproc_per_node=4 --master_addr 127.0.0.1 --master_port 40000 \
--m colbert.index --amp --doc_maxlen 180 --mask-punctuation --bsize 1024 \
---prune_tokens --pruner_filepath ${pruner_filepath} --pruned_index_size ${pruned_index_size} --pseudo_query_indicator \
---checkpoint ${checkpoint} --collection ${collection} \
---index_root ${index_root} --index_name MSMARCO.L2.32x200k \
---root experiments/pqa_colbert-b36-lr3e6 --experiment MSMARCO-psg \
-
-# index_faiss
-CUDA_VISIBLE_DEVICES=0,1 python -m colbert.index_faiss \
---index_root ${index_root} --index_name MSMARCO.L2.32x200k \
---partitions 32768 --sample 0.3 --slices 1 \
---root experiments/pqa_colbert-b36-lr3e6 --experiment MSMARCO-psg
-```
-
-- Step 2. ANN search: approximate nearnest neighbor (NN) search using FAISS.
-In this step, we retrieve documents that has at least one NN token to any query token.
-
-```bash
-checkpoint=/path/to/colbert-*.dnn # The best checkpoint, e.g., "experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-200000.dnn"
-[ ! -f "${checkpoint}" ] && echo "${checkpoint} does not exist." && return
-index_root=/path/to/index.py # e.g., "experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/index.py"
-[ ! -d "${index_root}/" ] && echo "${index_root} does not exist." && return
-queries=/path/to/queries.train.tsv # e.g., "data/queries.train.tsv"
-[ ! -f ${queries} ] && echo "${queries} does not exist" && return
-
-# ANN search
-CUDA_VISIBLE_DEVICES=0 python -m colbert.retrieve \
---batch --retrieve_only --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
---queries ${queries} \
---nprobe 32 --partitions 32768 --faiss_depth 1024 \
---index_root ${index_root} --index_name MSMARCO.L2.32x200k \
---checkpoint ${checkpoint} --root experiments/pqa_colbert-b36-lr3e6 --experiment MSMARCO-psg
-
-```
-
-- Step 3. Exact-NN search (similar to reranking):
-In this step, we rank documents retrieved in Step 2 (ANN search).
-```bash
-checkpoint=/path/to/colbert-*.dnn # The best checkpoint, e.g., "experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-200000.dnn"
-[ ! -f "${checkpoint}" ] && echo "${checkpoint} does not exist." && return
-index_root=/path/to/index.py # e.g., "experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/index.py"
-[ ! -d "${index_root}/" ] && echo "${index_root} does not exist." && return
-queries=/path/to/queries.train.tsv # e.g., "data/queries.train.tsv"
-[ ! -f ${queries} ] && echo "${queries} does not exist" && return
-
-topk=experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/retrieve.py/$(ls experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/retrieve.py)/unordered.tsv
-[ ! -f "${topk}" ] && echo "${topk} does not exist." && return
-CUDA_VISIBLE_DEVICES=0 python -m colbert.rerank --topk ${topk} --batch --log-scores --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
---queries ${queries} \
---index_root ${index_root} --index_name MSMARCO.L2.32x200k \
---checkpoint ${checkpoint} --root experiments/pqa_colbert-b36-lr3e6 --experiment MSMARCO-psg
-```
-- Step 4. Evaluation: We evaluate the ranking results, measuring MRR@10/100, Recall@50/200/1000, NDCG@10, MAP@1000
-```bash
-qrels=/path/to/qrels.dev.small.tsv # e.g., "data/msmarco-pass/qrels.dev.small.tsv"
-[ ! -f "${qrels}" ] && echo "${qrels} does not exist." && return
-ranking=experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/rerank.py/$(ls experiments/pqa_colbert-b36-lr3e6/MSMARCO-psg/rerank.py)/ranking.tsv
-[ ! -f "${ranking}" ] && echo "${ranking} does not exist." && return
-python -m utility.evaluate.msmarco_passages --qrels ${qrels} --ranking ${ranking}
-```
-
-
-### Step 3-2. Fine-tune PQA-ColBERT using hard negatives
-
-NAVER dataset 에서는 생략.
-Resource 도 많이 잡아먹고, 시간도 너무 오래 걸림.
