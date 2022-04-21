@@ -115,7 +115,7 @@ Example)
 
 ## Step 1. Preliminary: Training ColBERT Teacher
 
-- The checkpoint we used in our experiments can be downloaded [here (colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing)
+- The checkpoint used in our experiments can be downloaded [here (colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing)
 
 An example bash command for **training**:
 ```bash
@@ -153,7 +153,7 @@ The overall process is as follows:
 2. retrieval, to obtain pseudo-relevance feedback (PRF).
 3. obtaining collective knowledge from PRF.
 
-**Step 2-1: Encoding and Indexing.**
+### Step 2-1: Encoding and Indexing
 
 An example bash command for **encoding and indexing**:
 ```bash
@@ -172,9 +172,9 @@ CUDA_VISIBLE_DEVICES=0,1 python -m colbert.index_faiss \
 --root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg
 ```
 
-**Step 2-2: Retrieval.**
+### Step 2-2: Retrieval
 
-- The ranking file for training queries, we used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
+- The ranking file for training queries, used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
 
 scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-HN/label.py/ranking.jsonl ./colbert.msmarco_pass.train.ranking.jsonl
 
@@ -269,9 +269,9 @@ for i in $(seq -f "%02g" 0 $(expr ${n_splits} - 1));do
 done
 ```
 
-**Step 2-3: Obtaining Collective Knowledge.**
+### Step 2-3: Obtaining Collective Knowledge
 
-- The collective knowledge from PRF (docs=3, clusters=24, k=10, beta=1.0), we used in our experiments, can be downloaded [here (colbert.msmarco_pass.train.collective_knowledge.pt)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
+- The collective knowledge from PRF (docs=3, clusters=24, k=10, beta=1.0) used in our experiments, can be downloaded [here (colbert.msmarco_pass.train.collective_knowledge.pt)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
 scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-CollectiveFeedback/docs3.clusters24.k10.beta1.0/label.py/2022-01-04_21.17.26/expansion.pt ./colbert.msmarco_pass.train.collective_knowledge.pt
 
 An example bash command for **obtaining collective knowledge**:
