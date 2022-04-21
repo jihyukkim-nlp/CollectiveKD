@@ -149,7 +149,7 @@ python -m colbert.test --checkpoint ${checkpoint_to_be_validated} \
 ## Step 2. Obtain Collective Knowledge from PRF
 
 The overall process is as follows:
-1. encoding and indexing.
+1. encoding and indexing passages in the collection.
 2. retrieval, to obtain pseudo-relevance feedback (PRF).
 3. obtaining collective knowledge from PRF.
 
