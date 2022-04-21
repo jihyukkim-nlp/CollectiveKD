@@ -289,7 +289,7 @@ CUDA_VISIBLE_DEVICES=0 python \
 ```
 
 
-## Step 3. Distill Collective Knowledge to ColBERT
+## Step 3. Knowledge Distill using Collective Knowledge
 
 
 ### Step 3-1: Obtaining Hard Negatives.
