@@ -14,7 +14,7 @@ For validation/evaluation,
 - query collection for validation dataset: `queries.dev.small.tsv`
 - relevance annotation for validation dataset: `qrels.dev.small.tsv`
 
-You can download data [here]()
+You can download data [here](https://drive.google.com/drive/folders/1IQFBXp6Gmo4UsJ-k_HSbz3lsNtxP2S9h?usp=sharing).
 
 **[1] `collection.tsv`**
 
