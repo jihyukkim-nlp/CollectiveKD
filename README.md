@@ -176,8 +176,6 @@ CUDA_VISIBLE_DEVICES=0,1 python -m colbert.index_faiss \
 
 - The ranking file for training queries, used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
 
-scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-HN/label.py/ranking.jsonl ./colbert.msmarco_pass.train.ranking.jsonl
-
 An example bash command for **retrieval, to obtain pseudo-relevance feedback (PRF)**:
 ``` bash
 echo;echo;echo
@@ -185,7 +183,7 @@ echo;echo;echo
 topk_dir=experiments/colbert-b36-lr3e6/MSMARCO-psg-PRF/retrieve.py/pseudo_relevance_feedback
 topk=${topk_dir}/unordered.tsv
 if [ ! -f ${topk} ];then
-    CUDA_VISIBLE_DEVICES=${device} python -m colbert.retrieve --batch --retrieve_only --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
+    CUDA_VISIBLE_DEVICES=0 python -m colbert.retrieve --batch --retrieve_only --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
     --queries /path/to/queries \
     --nprobe 32 --partitions 32768 --faiss_depth 1024 --index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k \
     --checkpoint /path/to/colbert.dnn --root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg-PRF --run pseudo_relevance_feedback
@@ -239,7 +237,7 @@ for i in $(seq -f "%02g" 0 $(expr ${n_splits} - 1));do
     [ ! -f "${checkpoint}" ] && echo "${checkpoint} does not exist." && return
     [ ! -d "${exp_root}" ] && echo "${exp_root} does not exist." && return
 
-    CUDA_VISIBLE_DEVICES=${device} python \
+    CUDA_VISIBLE_DEVICES=0 python \
     -m colbert.label --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
     --batch --log-scores \
     --topk ${small_topk} --queries ${small_queries} \
@@ -272,7 +270,7 @@ done
 ### Step 2-3: Obtaining Collective Knowledge
 
 - The collective knowledge from PRF (docs=3, clusters=24, k=10, beta=1.0) used in our experiments, can be downloaded [here (colbert.msmarco_pass.train.collective_knowledge.pt)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
-scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-CollectiveFeedback/docs3.clusters24.k10.beta1.0/label.py/2022-01-04_21.17.26/expansion.pt ./colbert.msmarco_pass.train.collective_knowledge.pt
+<!-- scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-CollectiveFeedback/docs3.clusters24.k10.beta1.0/label.py/2022-01-04_21.17.26/expansion.pt ./colbert.msmarco_pass.train.collective_knowledge.pt -->
 
 An example bash command for **obtaining collective knowledge**:
 ``` bash
@@ -323,4 +321,46 @@ CUDA_VISIBLE_DEVICES=0,1 python \
 --collection /path/to/collection.tsv \
 --teacher_checkpoint /path/to/colbert.dnn \
 --kd_expansion_pt /path/to/colbert.msmarco_pass.train.collective_knowledge.pt
+```
+
+
+## Evaluation
+
+
+- The ranking file for training queries, used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
+
+
+An example bash command for **end-to-end ranking**:
+``` bash
+# Approximate NN Search, using Faiss index
+CUDA_VISIBLE_DEVICES=0 python -m colbert.retrieve \
+--batch --retrieve_only --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
+--queries /path/to/queries.dev.small.tsv \
+--nprobe 32 --partitions 32768 --faiss_depth 1024 --index_root /path/to/index.py --index_name MSMARCO.L2.32x200k \
+--checkpoint /path/to/checkpoint --root /path/to/root --experiment MSMARCO-psg --run msmarco_dev
+# Exact-NN Search
+CUDA_VISIBLE_DEVICES=0 python -m colbert.rerank \
+--topk /path/to/root/MSMARCO-psg/retrieve.py/msmarco_dev/unordered.tsv \
+--batch --log-scores --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
+--queries /path/to/queries.dev.small.tsv \
+--index_root /path/to/index.py --index_name MSMARCO.L2.32x200k \
+--checkpoint /path/to/checkpoint --root /path/to/root --experiment MSMARCO-psg --run msmarco_dev
+```
+
+An example bash command for **evaluation**:
+``` bash
+# For MSMARCO Dev
+python -m utility.evaluate.trec_format_evaluation \
+--binarization_point 1 --per_query_annotate \
+--queries /path/to/queries.dev.small.tsv \
+--qrels /path/to/qrels.dev.small.tsv \
+--ranking /path/to/MSMARCO-psg/rerank.py/msmarco_dev/ranking.tsv
+
+# For TREC-DL 2019/2020
+# Note that, for TREC queries, we use ``--binarization_point 2``.
+python -m utility.evaluate.trec_format_evaluation \
+--binarization_point 2 --per_query_annotate \
+--queries /path/to/queries.trec[2019/2020].tsv \
+--qrels /path/to/[2019/2020]qrels-pass.txt \
+--ranking /path/to/MSMARCO-psg/rerank.py/trec[2019/2020]/ranking.tsv
 ```
