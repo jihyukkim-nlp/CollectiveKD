@@ -280,7 +280,8 @@ CUDA_VISIBLE_DEVICES=0 python \
 -m colbert.label --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
 --root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg-CollectiveKnowledge \
 --expansion_only --prf --fb_docs 3 --fb_k 10 --beta 1.0 --fb_clusters 24 \
---index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k  --nprobe 32 --partitions 32768 --faiss_depth 1024 \
+--index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k \
+--nprobe 32 --partitions 32768 --faiss_depth 1024 \
 --batch --log-scores \
 --fb_ranking /path/to/colbert.msmarco_pass.train.ranking.jsonl \
 --checkpoint /path/to/colbert.dnn \
