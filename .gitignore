@@ -6,3 +6,4 @@ mlruns/
 __pycache__
 gwd.sh
 environment_setting.sh
+.DS_Store
