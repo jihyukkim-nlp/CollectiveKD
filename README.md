@@ -115,7 +115,7 @@ Example)
 
 ## Step 1. Preliminary: Training ColBERT Teacher
 
-(You can download the checkpoint we used in our experiments, in [here (colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing))
+- The checkpoint we used in our experiments can be downloaded [here (colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing)
 
 An example bash command for **training**:
 ```bash
@@ -146,167 +146,148 @@ python -m colbert.test --checkpoint ${checkpoint_to_be_validated} \
 
 
 
-## Step 2. Obtain Collective Knowledge from Pseudo-Relevance Feedback Passages 
+## Step 2. Obtain Collective Knowledge from Pseudo-Relevance Feedback (PRF) Passages 
 
-You need the following data.
+The overall process is as follows:
+1. encoding and indexing.
+2. retrieval, to obtain pseudo-relevance feedback (PRF).
+3. obtaining collective knowledge from PRF.
 
-- passage collection: `collection.tsv`
-- query collection for training dataset: `queries.train.tsv`
-- query collection for validation dataset: `queries.dev.small.tsv`
-- relevance annotation for training dataset: `qrels.train.tsv`
-- relevance annotation for validation dataset: `qrels.dev.small.tsv`
+**Step 2-1: Encoding and Indexing.**
 
-
-**Step 2-1: Construct train/test datasets for QD-Pruner.**
+An example bash command for **encoding and indexing**:
 ```bash
-# Please replace this checkpoint by the best checkpoint showing highest validation performance.
-colbert_checkpoint=experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-300000.dnn
+# encoding passages
+CUDA_VISIBLE_DEVICES=0,1 OMP_NUM_THREADS=2 \
+python -m torch.distributed.launch --nproc_per_node=2 --master_addr 127.0.0.1 --master_port 30000 \
+-m colbert.index --amp --doc_maxlen 180 --mask-punctuation --bsize 1024 \
+--checkpoint /path/to/colbert.dnn --collection /path/to/collection.tsv \
+--index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k \
+--root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg
 
-# Train
-CUDA_VISIBLE_DEVICES=0 python -m \
-pruner.construct_pruner_dataset.py \
---qrels /path/to/qrels.train.tsv \
---queries /path/to/queries.train.tsv \
---collection /path/to/collection.tsv \
---checkpoint ${colbert_checkpoint} --tag train
-# Dev
-CUDA_VISIBLE_DEVICES=0 python -m \
-pruner.construct_pruner_dataset.py \
---qrels /path/to/qrels.dev.small.tsv \
---queries /path/to/queries.dev.small.tsv \
---collection /path/to/collection.tsv \
---checkpoint ${colbert_checkpoint} --tag dev.small
+# faiss indexing for approximate nearest neighbor search
+CUDA_VISIBLE_DEVICES=0,1 python -m colbert.index_faiss \
+--index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k \
+--partitions 32768 --sample 0.3 --slices 1 \
+--root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg
 ```
 
-The above commands will produce `data/pruner.train.tsv` and `data/pruner.dev.small.tsv`, which are train/dev sets for QD-Pruner respectively.
+**Step 2-2: Retrieval.**
+
+- The ranking file for training queries, we used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
+
+scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-HN/label.py/ranking.jsonl ./colbert.msmarco_pass.train.ranking.jsonl
+
+An example bash command for **retrieval, to obtain pseudo-relevance feedback (PRF)**:
+``` bash
+echo;echo;echo
+# 1. ANN search (FAISS)
+topk_dir=experiments/colbert-b36-lr3e6/MSMARCO-psg-PRF/retrieve.py/pseudo_relevance_feedback
+topk=${topk_dir}/unordered.tsv
+if [ ! -f ${topk} ];then
+    CUDA_VISIBLE_DEVICES=${device} python -m colbert.retrieve --batch --retrieve_only --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
+    --queries /path/to/queries \
+    --nprobe 32 --partitions 32768 --faiss_depth 1024 --index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k \
+    --checkpoint /path/to/colbert.dnn --root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg-PRF --run pseudo_relevance_feedback
+else
+    echo "We have ANN search result at: \"${topk}\""
+fi
+
+echo;echo;echo
+# 2. Split the large query file into small files, to prevent out-of-memory
+[ ! -f "${queries}" ] && echo "${queries} does not exist." && return
+queries_split=/path/to/queries.train.splits
+echo "1. Split the large query file into small files, to prevent out-of-memory"
+echo "mkdir ${queries_split}"
+mkdir -p ${queries_split}
+echo "split \"${queries}\" into multiple queries with 100000 lines each"
+split -d -l 50000 ${queries} ${queries_split}/queries.tsv.
+echo "Splitted query files"
+wc -l ${queries_split}/*
+n_splits=$(ls ${queries_split} | wc -l)
+echo
 
 
-Each tsv file contains lines of a passage information and MaxSim labels separated by `\t`. 
-Specifically, each line in the tsv file consists of four columns, where each column corresponds to,
-|column|data type  | description |
-|:---- |:----      |:----        |
-|1     |int        | passage id.  |
-|2     |str        | corresponding passage text to the passage id.|
-|3     |List[int]  | list of positions for MaxSim document (passage) tokens, including special tokens such as `[CLS]`, `[SEP]`, and `[D]`, that have maximum similarity to relevant query tokens (Documents are tokenized by `bert-base-uncased` tokenizer.). |
-|4     |List[float], len=# of tokens in the passage|list of maximum similarity scores for each document (passage) token over query tokens.|
-
-Example)
-```
-0       the presence of communication amid scientific minds was equally important to the success of the manhattan project as scientific intellect was. the only cloud hanging over the impressive achievement of the atomic researchers and engineers is what their success truly meant; hundreds of thousands of innocent lives obliterated. [0, 14, 15, 16, 17, 18, 29, 30, 31, 42, 55]     [0.8068409562110901, 0.5681596994400024, 0.5747631192207336, 0.45320624113082886, 0.4583646357059479, 0.3529701232910156, 0.2936961054801941, 0.4433983266353607, 0.429374098777771, 0.5999374389648438, 0.5350585579872131, 0.5481845736503601, 0.6487976312637329, 0.8171653747558594, 0.9336666464805603, 0.8640353679656982, 0.8745876550674438, 0.95322585105896, 0.9184141755104065, 0.6111993193626404, 0.48990803956985474, 0.4843651056289673, 0.6285828351974487, -1.0, 0.5485295653343201, 0.4252498745918274, 0.3557422161102295, 0.3938046395778656, 0.43183067440986633, 0.7577823400497437, 0.6469422578811646, 0.7715386152267456, 0.7441152334213257, 0.761792778968811, 0.5814782381057739, 0.4278663396835327, 0.6125251054763794, 0.5081080198287964, 0.53945392370224, 0.5946029424667358, 0.7833344340324402, 0.9169444441795349, 0.6163772344589233, 0.5737343430519104, -1.0, 0.3966630697250366, 0.523266613483429, 0.390765517950058, 0.44802775979042053, 0.5119759440422058, 0.3330235481262207, 0.41119855642318726, 0.32454365491867065, 0.43046143651008606, -1.0, 0.7581527233123779]
-16      the approach is based on a theory of justice that considers crime and wrongdoing to be an offense against an individual or community, rather than the state. restorative justice that fosters dialogue between victim and offender has shown the highest rates of victim satisfaction and offender accountability.    [0, 2, 4, 5, 10, 13, 25, 26, 30, 33, 42, 43, 44, 57]    [0.8889580965042114, 0.7801281213760376, 0.8015756607055664, 0.6539733409881592, 0.8110814690589905, 0.7170895934104919, 0.7347837686538696, 0.765994668006897, 0.5883604884147644, 0.7163107395172119, 0.9371410608291626, 0.7753342390060425, 0.644502580165863, 0.7738834619522095, 0.7701899409294128, 0.6235283613204956, 0.5324732065200806, 0.49054306745529175, 0.7094287872314453, 0.7307451367378235, 0.7698140740394592, 0.8053163886070251, 0.5682818293571472, 0.8165604472160339, 0.689547061920166, 0.7445106506347656, 0.9166201949119568, -1.0, 0.4864512085914612, 0.5789581537246704, 0.8493117690086365, 0.6557117700576782, -1.0, 0.6959976553916931, 0.4331406056880951, 0.5815086364746094, 0.8803708553314209, 0.7743484973907471, 0.5189361572265625, 0.7920830845832825, 0.4855117201805115, 0.4898347556591034, 0.9155168533325195, 0.6977662444114685, 0.8968381285667419, 0.7355256080627441, 0.49121928215026855, 0.5756563544273376, 0.27007055282592773, 0.2913038432598114, 0.503304660320282, 0.8486625552177429, 0.3740710914134979, 0.5542383790016174, 0.8542225956916809, 0.465425044298172, -1.0, 0.8426947593688965]
-49      colorâurine can be a variety of colors, most often shades of yellow, from very pale or colorless to very dark or amber. unusual or abnormal urine colors can be the result of a disease process, several medications (e.g., multivitamins can turn urine bright yellow), or the result of eating certain foods.       [0, 27, 28, 33, 34, 70] [0.7653096318244934, 0.7677752375602722, 0.8390200138092041, 0.5069393515586853, 0.4723702669143677, 0.5936882495880127, 0.7419677972793579, 0.705083429813385, 0.42183759808540344, 0.7670052647590637, 0.8708648681640625, -1.0, 0.5469537377357483, 0.4893503189086914, 0.8028822541236877, 0.8254142999649048, 0.7074419856071472, -1.0, 0.8033139109611511, 0.5952092409133911, 0.5729650855064392, 0.8169426918029785, 0.8449762463569641, 0.6755174398422241, 0.830437183380127, 0.6373432874679565, 0.7245097160339355, 0.8652440309524536, 0.8216099739074707, -1.0, 0.37843677401542664, 0.6057608723640442, 0.47281429171562195, 0.9144777059555054, 0.8802976608276367, 0.5370482206344604, 0.6091635823249817, 0.5790393352508545, 0.4074780344963074, 0.5287338495254517, 0.5339442491531372, 0.4063192307949066, 0.4235568344593048, -1.0, 0.34004926681518555, 0.2463567852973938, -1.0, 0.3404024541378021, -1.0, 0.30749356746673584, -1.0, -1.0, 0.20635205507278442, 0.16611537337303162, 0.31408917903900146, 0.41995224356651306, 0.5411525368690491, 0.8815856575965881, 0.6324871778488159, 0.6523560285568237, -1.0, -1.0, 0.43566185235977173, 0.5535573959350586, 0.3921632468700409, 0.5193235278129578, 0.3131359815597534, 0.39169758558273315, 0.2722587287425995, -1.0, 0.7915629148483276]
-60      inborn errors of bile acid synthesis can produce life-threatening cholestatic liver disease (which usually presents in infancy) and progressive neurological disease presenting later in childhood or in adult life.he neurological presentation often includes signs of upper motor neurone damage (spastic paraparesis). the most useful screening test for many of these disorders is analysis of urinary cholanoids (bile acids and bile alcohols); this is usually now achieved by electrospray ionisation tandem mass spectrometry.     [0, 1, 2, 5, 6, 7, 8, 13, 18, 19, 70]   [0.7536428570747375, 0.742592990398407, 0.5322511196136475, 0.5247923731803894, 0.6817569136619568, 0.7562474012374878, 0.9344116449356079, 0.9309346079826355, 0.9276225566864014, 0.6372604966163635, 0.6144055128097534, 0.5180937051773071, -1.0, 0.6191076040267944, 0.5146544575691223, 0.42439037561416626, 0.5536251068115234, 0.4348626732826233, 0.624309778213501, 0.7394540309906006, -1.0, 0.6424052119255066, 0.39214086532592773, 0.4982939064502716, 0.47302597761154175, 0.5071606636047363, -1.0, 0.6114169359207153, 0.5322721600532532, 0.45988208055496216, 0.6864714026451111, 0.4713192880153656, 0.40595543384552, 0.40218305587768555, 0.4890007972717285, 0.434877872467041, 0.362429678440094, 0.43605878949165344, 0.42508119344711304, -1.0, 0.5152348875999451, 0.48058027029037476, 0.5282185673713684, 0.412103533744812, 0.42108243703842163, 0.4662315249443054, 0.527930736541748, 0.4375314712524414, 0.43948614597320557, 0.3192533850669861, 0.4916054904460907, 0.45750534534454346, 0.6252279281616211, -1.0, 0.29627394676208496, 0.4545784294605255, 0.38646200299263, 0.41911083459854126, 0.41111284494400024, -1.0, -1.0, 0.2906797528266907, 0.2444407045841217, 0.29565852880477905, 0.3816891014575958, 0.3848043978214264, 0.3218739330768585, 0.4153769612312317, 0.601418137550354, 0.6090396642684937, 0.7717170715332031, 0.34909164905548096, 0.5109040141105652, 0.518264651298523, 0.49579447507858276, 0.31299129128456116, 0.42905694246292114, 0.4633010923862457, 0.4764859974384308, 0.553070068359375, -1.0, 0.927311897277832, 0.8702667355537415, 0.6374301314353943, 0.9027339816093445, 0.5909631252288818, 0.6734054088592529, -1.0, -1.0, 0.3121293783187866, 0.30044025182724, 0.30347633361816406, 0.29485997557640076, 0.3719952702522278, 0.27340084314346313, 0.42794880270957947, 0.19800126552581787, 0.27528563141822815, 0.3200281262397766, 0.29724931716918945, 0.3574361503124237, 0.28249844908714294, 0.3710485100746155, 0.3972771167755127, 0.23683683574199677, 0.30532824993133545, -1.0, 0.7015447616577148]
-389     the word convict here (elegcw /elegxo) means to bring to light or expose error often with the idea of reproving or rebuking. it brings about knowledge of believing or doing something wrong, but it does not mean that the person will respond properly to that knowledge. our usage of the english word, convict, is similar.       [7, 12, 13, 14, 15, 17, 75]     [0.5502988696098328, 0.4595235288143158, 0.6352850794792175, 0.6500645875930786, 0.48128411173820496, 0.6181108951568604, -1.0, 0.9680016040802002, 0.9545078277587891, 0.5778339505195618, 0.6742391586303711, -1.0, 0.9694008827209473, 0.9639766812324524, 0.9478492140769958, 0.9340505599975586, -1.0, 0.8018643260002136, 0.5945653319358826, 0.48486167192459106, 0.5129445791244507, 0.4784401059150696, 0.6401134729385376, 0.4802930951118469, 0.38084694743156433, 0.5391957759857178, 0.5109508037567139, 0.5641324520111084, 0.4781995415687561, 0.4946175217628479, 0.2114090770483017, 0.29524123668670654, 0.5819870829582214, 0.26475778222084045, 0.2664537727832794, 0.335136353969574, -1.0, 0.6324722766876221, 0.5335291624069214, 0.5782676935195923, 0.42623692750930786, 0.45790910720825195, 0.32702651619911194, 0.48180511593818665, 0.2835230827331543, 0.3195200562477112, 0.30127206444740295, -1.0, 0.4813151955604553, 0.6234489679336548, 0.5708021521568298, 0.37207862734794617, 0.746213972568512, 0.33261746168136597, 0.3612111508846283, 0.30383363366127014, 0.3203539550304413, 0.3852600157260895, 0.2700991928577423, 0.21937726438045502, 0.20526549220085144, 0.25679662823677063, -1.0, 0.38314706087112427, 0.5704761743545532, 0.6143859624862671, 0.6211594343185425, 0.5285026431083679, 0.6254777908325195, -1.0, 0.48188039660453796, -1.0, 0.544296383857727, 0.44486576318740845, -1.0, 0.6754194498062134]
-616     in-home tutors can earn anywhere from $10 to $80 an hour, depending on the type of lesson, the studentâs skill and age level and the tutorâs experience. tutors often charge more for older students or those who require more advanced lessons.        [0, 1, 5, 6, 7, 8, 13, 15, 39, 55]      [0.8137997388839722, 0.8114558458328247, 0.6685705184936523, -1.0, 0.6586880087852478, 0.896394670009613, 0.838416337966919, 0.8432869911193848, 0.8185083270072937, 0.8321446776390076, 0.8326981663703918, -1.0, 0.7624572515487671, 0.8241757154464722, -1.0, 0.6857089996337891, 0.8200379610061646, 0.6110264658927917, -1.0, 0.6586154103279114, 0.5892788767814636, 0.6658985614776611, 0.41375336050987244, 0.6758239269256592, 0.6848639845848083, -1.0, 0.6987396478652954, 0.7536947727203369, 0.6347081661224365, 0.5176676511764526, 0.6511824131011963, 0.5180739760398865, 0.3680104613304138, 0.6701920628547668, 0.728459894657135, 0.8923550844192505, 0.6752061247825623, 0.5440406799316406, -1.0, 0.8985081315040588, 0.7863867878913879, 0.49231624603271484, 0.6522527933120728, 0.6707282662391663, 0.6730362772941589, 0.3932610750198364, 0.6943511962890625, 0.6120485067367554, 0.5963760614395142, 0.5679729580879211, 0.4652756452560425, 0.37822186946868896, 0.3834679424762726, 0.7170788049697876, -1.0, 0.8285561800003052]
-723     calculators may be used on the compass pre-algebra, algebra, college algebra, geometry, and trigonometry tests provided they meet the requirements listed below. electronic writing pads or pen-input devicesâthe sharp el 9600 is permitted. models with paper tapesâthe paper must be removed.        [0, 1, 2, 3, 4, 6, 7, 8, 10, 27, 64]  [0.7149496078491211, 0.8742516040802002, 0.9264404773712158, 0.915501058101654, 0.8847230076789856, 0.7450535297393799, 0.7667892575263977, 0.7962809801101685, 0.7431142330169678, 0.6585139036178589, 0.8902359008789062, 0.44316476583480835, -1.0, 0.5168864727020264, -1.0, 0.46465834975242615, -1.0, 0.3460831642150879, 0.4323849678039551, -1.0, 0.43309149146080017, -1.0, 0.6079084277153015, 0.3975137174129486, 0.3865807056427002, 0.46990466117858887, 0.5590572953224182, 0.8286626935005188, 0.4215991497039795, 0.6299366354942322, 0.41081586480140686, 0.572170078754425, 0.5560429692268372, 0.38826093077659607, 0.3742062449455261, -1.0, 0.36049625277519226, 0.42530548572540283, 0.502355694770813, 0.6566161513328552, 0.39138877391815186, -1.0, 0.34554052352905273, 0.5379403829574585, 0.4020921289920807, 0.4850448966026306, 0.47460585832595825, 0.5036196112632751, 0.44650891423225403, 0.45486754179000854, 0.6198089122772217, 0.6083841323852539, -1.0, 0.4280892014503479, 0.4409741163253784, 0.2651841938495636, 0.31353041529655457, 0.33616331219673157, 0.3521459102630615, 0.23961003124713898, 0.5773711204528809, 0.5664423704147339, 0.2996961772441864, -1.0, 0.7278518676757812]
-944     doctor directory. a physiatrist practices in the field of physiatry - also called physical medicine and rehabilitation - which is a branch of medicine that specializes in diagnosis, treatment, and management of disease primarily using physical means, such as physical therapy and medications.    [0, 23, 24, 34, 41, 57]       [0.722319483757019, 0.6307241916656494, 0.633918821811676, 0.5218966603279114, -1.0, 0.614198625087738, 0.5662242770195007, 0.5518184900283813, 0.5270653963088989, 0.5360412001609802, 0.6686007380485535, 0.6531622409820557, 0.7002791166305542, 0.7037158012390137, 0.5529422760009766, 0.685488224029541, 0.6268428564071655, 0.5432345867156982, 0.5087006688117981, 0.6673044562339783, -1.0, 0.6108111143112183, 0.5886889696121216, 0.8631179332733154, 0.8755054473876953, 0.7210077047348022, 0.6726275682449341, -1.0, 0.7282859086990356, 0.7149351239204407, 0.7147164940834045, 0.48419368267059326, 0.6809349060058594, 0.8320478200912476, 0.7288333177566528, 0.6076434254646301, 0.6991826891899109, 0.568859875202179, -1.0, 0.6358432769775391, -1.0, 0.7281278967857361, 0.43158072233200073, 0.7056300044059753, 0.5760507583618164, 0.5111424922943115, 0.6848932504653931, 0.8321049213409424, 0.5336957573890686, -1.0, 0.6458550691604614, 0.6695042848587036, 0.7691411972045898, 0.6920201778411865, 0.7082738876342773, 0.6842396855354309, -1.0, 0.7666418552398682]
-1054    active/pending = usually that means the seller would like to get more offers. savvy agents want back-up offers in place. if you made an offer to purchase a property and the seller agreed to the price, but already has a buyer in contract, you would be the 1st position back-up buyer.      [0, 4, 7, 8, 66]      [0.7860825061798096, 0.7074429988861084, 0.5995618104934692, -1.0, 0.9149633646011353, -1.0, 0.671221137046814, 0.7644909620285034, 0.8595850467681885, 0.6907141208648682, 0.47757065296173096, 0.6048806309700012, 0.4604034721851349, 0.6238332390785217, 0.3971758186817169, 0.39484333992004395, 0.45806920528411865, -1.0, 0.3042122721672058, 0.22647501528263092, 0.37318357825279236, 0.3747554123401642, 0.4236123263835907, 0.48956766724586487, -1.0, 0.40308308601379395, 0.4757326543331146, 0.4955410361289978, 0.4733577072620392, -1.0, 0.5634207725524902, 0.588043212890625, 0.42012327909469604, 0.5802329182624817, 0.4118131101131439, 0.4934181272983551, 0.4224875569343567, 0.5180556178092957, 0.37285417318344116, 0.46588194370269775, 0.4617050886154175, 0.3761850893497467, 0.39358294010162354, 0.38871175050735474, 0.44004175066947937, 0.3190738260746002, -1.0, 0.5285836458206177, 0.45909905433654785, 0.3854236304759979, 0.5028836727142334, 0.4389178454875946, 0.4949687123298645, 0.42062389850616455, -1.0, 0.6459958553314209, 0.5001962184906006, 0.5602428913116455, 0.5920572280883789, 0.3975357413291931, 0.42050838470458984, 0.5065714120864868, -1.0, 0.3891295790672302, 0.41203945875167847, -1.0, 0.7341030836105347]
-1160    1. begin with rice cereal on days 1,2 and 3, offering it twice daily at breakfast and dinnertime. rice cereal can be mixed with water or milk(breast or formula) to make a thin oatmeal like consistency. the infant should be offered a rubberized spoon. during these first three days, offer 3-4 tablespoons at a time but be flexible. some infants will be very hungry and want more- that's ok. [0, 5, 6, 7, 19, 26, 27, 75, 96]        [0.758526086807251, 0.7381275296211243, 0.711059033870697, -1.0, 0.636862576007843, 0.7289581894874573, 0.9174531698226929, 0.921474039554596, 0.7136076092720032, 0.7491756677627563, 0.7176453471183777, -1.0, 0.704339861869812, 0.7175365686416626, 0.6706535816192627, -1.0, 0.6108893156051636, 0.8235583305358887, 0.7673978209495544, 0.7895018458366394, 0.7466001510620117, 0.6279200911521912, 0.7146270871162415, 0.5957797765731812, 0.6157535314559937, -1.0, 0.9128525257110596, 0.9178348779678345, 0.601319432258606, 0.6425959467887878, 0.5233569145202637, 0.6115202307701111, 0.5347316265106201, 0.6574011445045471, 0.4410642981529236, -1.0, 0.41233640909194946, 0.6987799406051636, 0.3850654363632202, -1.0, 0.5748026371002197, 0.4708338677883148, 0.6084704995155334, 0.33311861753463745, 0.38069644570350647, 0.5393046736717224, 0.5419378280639648, 0.5287805795669556, 0.4399759769439697, 0.5135062336921692, -1.0, 0.6038751602172852, 0.5829108953475952, 0.5279495716094971, 0.6246976852416992, 0.5026413798332214, 0.5916544795036316, 0.14324891567230225, 0.28643539547920227, 0.4706789553165436, -1.0, 0.737396776676178, 0.6911563277244568, 0.6624203324317932, 0.5655717253684998, 0.7230678796768188, -1.0, 0.5122480392456055, 0.5697423815727234, -1.0, 0.5957261919975281, 0.4736679792404175, 0.2630268931388855, 0.6568694710731506, 0.6743643879890442, 0.7512124180793762, 0.7687193155288696, 0.4862971901893616, 0.6239108443260193, 0.38464462757110596, -1.0, 0.30934518575668335, 0.46767404675483704, 0.48466363549232483, 0.5283709764480591, 0.29184719920158386, 0.4330528974533081, 0.4683994948863983, 0.40082037448883057, 0.591644823551178, -1.0, 0.6590926647186279, -1.0, 0.6508125066757202, 0.2786513566970825, -1.0, 0.8217225670814514]
-```
+echo;echo;echo
+# 3. Filter ANN search result (top-K pids in ``unordered.tsv``), using each split queries
+[ ! -f "${topk}" ] && echo "${topk} does not exist." && return
+topk_split=${topk_dir}/queries.train.splits #TODO: custom path
+echo "3. Split the large unordered.tsv file into small files, to prevent out-of-memory"
+echo "mkdir ${topk_split}"
+mkdir -p ${topk_split}
+small_queries=""
+filtered_topk=""
+for i in $(seq -f "%02g" 0 $(expr ${n_splits} - 1));do
+    small_queries="${small_queries} ${queries_split}/queries.tsv.${i}"
+    filtered_topk="${filtered_topk} ${topk_split}/unordered.${i}.tsv"
+done
+python -m preprocessing.utils.filter_topK_pids --topk ${topk} \
+--queries ${small_queries} \
+--filtered_topk ${filtered_topk}
 
 
+echo;echo;echo
+# 4. Exact-NN search
+echo "4. Exact-NN search"
+# 
+for i in $(seq -f "%02g" 0 $(expr ${n_splits} - 1));do
+    small_queries=${queries_split}/queries.tsv.${i}
+    small_topk=${topk_split}/unordered.${i}.tsv
+    [ ! -f "${small_queries}" ] && echo "${small_queries} does not exist." && return
+    [ ! -f "${small_topk}" ] && echo "${small_topk} does not exist." && return
+    [ ! -d "${index_root}" ] && echo "${index_root} does not exist." && return
+    [ ! -f "${checkpoint}" ] && echo "${checkpoint} does not exist." && return
+    [ ! -d "${exp_root}" ] && echo "${exp_root} does not exist." && return
 
-**Step 2-2: Train QD-Pruner.**
+    CUDA_VISIBLE_DEVICES=${device} python \
+    -m colbert.label --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
+    --batch --log-scores \
+    --topk ${small_topk} --queries ${small_queries} \
+    --index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k \
+    --checkpoint /path/to/colbert.dnn \
+    --qrels /path/to/qrels.train.tsv \
+    --collection /path/to/collection.tsv \
+    --root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg-PRF  --run pseudo_relevance_feedback.${i} \
+    --fb_k 0 --beta 0.0 --depth 1000 --score_by_range
+done
 
-An example bash command for training:
 
-```bash
-colbert_checkpoint=experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-300000.dnn
-CUDA_VISIBLE_DEVICES=0 python -m \
-pruner.train --maxsteps 100000 --amp --doc_maxlen 180 --mask-punctuation --bsize 128 --accum 1 \
---data /path/to/pruner.train.tsv \
---root experiments/qd_pruner --experiment pruner --run msmarco.psg.l2 --lr 1e-03 \
---colbert_checkpoint ${colbert_checkpoint}
-```
-
-**Step 2-3: Evaluate QD-Pruner with different checkpoints.**
-
-For tokens in documents, we consider a token is pseudo-query term, 
-when the token has maximum similarity to relevant query tokens.
-
-Given gold labels on pseudo-queries in documents, we evaluat QD-Pruner using Recall@k metrics, on top-k tokens in documents, regarding QD-Pruner scores.
-
-```bash
-
-# Create a new file, for logging evaluation results
-echo -n > ${EXP_ROOT_DIR}/test.log
-
-# Evaluate QD-Pruner with different checkpoints
-for checkpoint_step in 10000 20000 30000 40000 50000 60000 70000 80000 90000 100000;do
-    checkpoint=experiments/qd_pruner/pruner/train.py/msmarco.psg.l2/checkpoints/pruner-${checkpoint_step}.dnn
-    CUDA_VISIBLE_DEVICES=0 python -m \
-    pruner.test --amp --doc_maxlen 180 --mask-punctuation \
-    --data ${DATA_DIR}/pruner_dataset/data/pruner.dev.small.tsv \
-    --checkpoint ${checkpoint} \
-    --root experiments/qd_pruner --experiment pruner >> ${EXP_ROOT_DIR}/test.log
+echo;echo;echo
+# 5. Merge results
+ranking=experiments/colbert-b36-lr3e6/MSMARCO-psg-PRF/label.py/ranking.tsv
+ranking_jsonl=experiments/colbert-b36-lr3e6/MSMARCO-psg-PRF/label.py/ranking.jsonl
+echo "5. Merge results"
+echo -n "" > ${ranking}
+echo -n "" > ${ranking_jsonl}
+for i in $(seq -f "%02g" 0 $(expr ${n_splits} - 1));do
+    small_ranking=experiments/colbert-b36-lr3e6/MSMARCO-psg-PRF/label.py/pseudo_relevance_feedback.${i}/ranking.tsv
+    cat ${small_ranking} >> ${ranking}
+    small_ranking_jsonl=experiments/colbert-b36-lr3e6/MSMARCO-psg-PRF/label.py/pseudo_relevance_feedback.${i}/ranking.jsonl
+    cat ${small_ranking_jsonl} >> ${ranking_jsonl}
+    # delete splited file results
+    rm -v experiments/colbert-b36-lr3e6/MSMARCO-psg-PRF/label.py/pseudo_relevance_feedback.${i}/ranking.*
 done
 ```
-|ckpt|Recall@10|@20|@30|@40|@50|@60|
-|:--|:--|:--|:--|:--|:--|:--|
-|10k  |0.654|0.841|0.919|0.959|0.980|0.990|
-|20k  |0.655|0.842|0.921|0.960|0.980|0.990|
-|30k  |0.655|0.843|0.921|0.961|0.981|0.990|
-|40k  |0.658|0.844|0.922|0.960|0.981|0.990|
-|50k  |0.658|0.845|0.922|0.961|0.980|0.990|
-|60k  |0.658|0.845|0.922|0.961|0.981|0.990|
-|70k  |0.659|0.845|0.922|0.960|0.981|0.990|
-|80k  |0.660|0.844|0.922|0.961|**0.982**|0.990|
-|90k  |0.659|0.845|0.922|0.961|0.981|0.990|
-|**100k** |**0.660**|**0.845**|**0.922**|**0.961**|0.981|**0.990**|
 
+**Step 2-3: Obtaining Collective Knowledge.**
 
+- The collective knowledge from PRF (docs=3, clusters=24, k=10, beta=1.0), we used in our experiments, can be downloaded [here (colbert.msmarco_pass.train.collective_knowledge.pt)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
+scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-CollectiveFeedback/docs3.clusters24.k10.beta1.0/label.py/2022-01-04_21.17.26/expansion.pt ./colbert.msmarco_pass.train.collective_knowledge.pt
 
-
-**Step 2-4: Prune documents in collection using QD-Pruner with the best checkpoint.**
-
-For index pruning, QD-Pruner extracts pseudo-queries from each document in the collection.
-Only the top-k pseudo queries will be used for indexing.
-
-To exclude duplicate tokens, thus to increase diversity of remaining tokens, we employ *maximal marginal relevance* (MMR) algorithm:
-- We first sort tokens by QD-Pruner scores, in descending order.
-- Starting from the token with the highest score, we sequentially add tokens to a queue.
-- However, we only add a token to the queue, *iff* every cosine similarity between the token vector and vectors for the previous tokens that are included in the queue is less than a pre-defined threshold (e.g., 0.9).
-
-When using 6 GPUs, pruning takes about an hour.
-
-An example bash command for pruning:
-```bash
-checkpoint=experiments/qd_pruner/pruner/train.py/msmarco.psg.l2/checkpoints/pruner-100000.dnn #! checkpoint
-CUDA_VISIBLE_DEVICES=0,1,2 OMP_NUM_THREADS=3 \
-python -m torch.distributed.launch --nproc_per_node=3 -m \
-pruner.prune --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
---checkpoint ${checkpoint} \
+An example bash command for **obtaining collective knowledge**:
+``` bash
+CUDA_VISIBLE_DEVICES=0 python \
+-m colbert.label --amp --doc_maxlen 180 --mask-punctuation --bsize 512 \
+--root experiments/colbert-b36-lr3e6 --experiment MSMARCO-psg-CollectiveKnowledge \
+--expansion_only --prf --fb_docs 3 --fb_k 10 --beta 1.0 --fb_clusters 24 \
+--index_root experiments/colbert-b36-lr3e6/MSMARCO-psg/index.py --index_name MSMARCO.L2.32x200k  --nprobe 32 --partitions 32768 --faiss_depth 1024 \
+--batch --log-scores \
+--fb_ranking /path/to/colbert.msmarco_pass.train.ranking.jsonl \
+--checkpoint /path/to/colbert.dnn \
+--queries /path/to/queries.train.tsv \
+--qrels /path/to/qrels.train.tsv \
 --collection /path/to/collection.tsv \
---root experiments/qd_pruner --experiment pruner \
---mmr_threshold 0.9 \
---output experiments/qd_pruner/pruner/prune.py/collection
 ```
-
-
-The above command will produce `collection.pruner.tsv` at `experiments/qd_pruner/pruner/prune.py/` directory,
-where each line in the file consists of four columns separated by `\t`, providing the following information:
-|column|data type  | description |
-|:---- |:----      |:----        |
-|1     |int        | passage id.  |
-|2     |List[int]  | token positions, sorted by QD-Pruner scores.  |
-|3     |List[float]| QD-Pruner scores.  |
-|4     |List[str]  | tokens, sorted by QD-Pruner scores.  |
-* **Note**: some tokens are excluded after applying MMR.
-
-Example)
-```
-0	[55,0,17,9,18,16,11,1,12,5,43,14,7,34,4,21,40,8,3,35,37,19,32,31,42,10,24,6,29,53,36,30,26,52,28,25,50,38,49,47,51,27,46]	[0.9162750244140625,0.6736327409744263,0.6094496250152588,0.5301669836044312,0.43832510709762573,0.3913881480693817,0.3731510043144226,0.32222598791122437,0.31963610649108887,0.2801666557788849,0.23703816533088684,0.19380176067352295,0.18438147008419037,0.171217143535614,0.1659589558839798,0.1306353062391281,0.12701396644115448,0.10501854121685028,0.08118323236703873,0.07248269021511078,0.0724184662103653,0.06888356059789658,0.06149934232234955,0.0596063956618309,0.05854078382253647,0.03951365873217583,0.03943730145692825,0.03744954243302345,0.03407867252826691,0.03176572546362877,0.03157592564821243,0.020912207663059235,0.020481009036302567,0.018711896613240242,0.01681123487651348,0.015666648745536804,0.014331532642245293,0.013786227442324162,0.009584910236299038,0.00935005396604538,0.009337964467704296,0.009330077096819878,0.0076719168573617935]	["[SEP]","[CLS]","manhattan","was","project","the","important","[unused1]","to","communication","meant","success","scientific","atomic","of","intellect","their","minds","presence","researchers","engineers","as","of","achievement","truly","equally","the","amid","the","##rated","and","impressive","cloud","##lite","over","only","lives","is","innocent","thousands","ob","hanging","of"]
-1	[36,3,2,4,9,0,8,14,25,16,7,13,24,11,10,12,22,19,23,30,20,21,27,26,34,32,31,33]	[0.952548086643219,0.6965649724006653,0.6087985038757324,0.6060217022895813,0.5377720594406128,0.4611407518386841,0.3521764278411865,0.3135346472263336,0.24753126502037048,0.243270605802536,0.2186213731765747,0.1404050886631012,0.13454921543598175,0.12282019108533859,0.12129753828048706,0.0940467119216919,0.06536047905683517,0.055171702057123184,0.036377377808094025,0.02848251536488533,0.017007257789373398,0.011344454251229763,0.010713746771216393,0.008812608197331429,0.007262969855219126,0.003617070382460952,0.0030630396213382483,0.0013036857126280665]	["[SEP]","manhattan","the","project","helped","[CLS]","bomb","world","energy","ii","atomic","to","atomic","an","bring","end","uses","legacy","of","impact","of","peaceful","to","continues","science","history","on","and"]
-2	[47,6,0,5,11,14,21,4,20,1,2,19,16,18,22,3,17,45,44,27,28,25,24,41,43,42,29,34,31,37,32,35,33,39,38,40]	[0.9270721077919006,0.6035641431808472,0.5786251425743103,0.5638307332992554,0.5230817794799805,0.38132286071777344,0.31735944747924805,0.2899940311908722,0.24775013327598572,0.20811179280281067,0.20440950989723206,0.18979886174201965,0.16351495683193207,0.12758417427539825,0.1074150800704956,0.08760003745555878,0.05050048232078552,0.03519637882709503,0.0314469151198864,0.02850984036922455,0.024679789319634438,0.01973511278629303,0.018221234902739525,0.015796463936567307,0.015144293196499348,0.013798550702631474,0.013794392347335815,0.0081108333542943,0.007125172298401594,0.0047232601791620255,0.00427929125726223,0.00284542771987617,0.0028303891886025667,0.00281545496545732,0.001976443687453866,0.0015025980537757277]	["[SEP]","project","[CLS]","manhattan","the","was","bomb","the","atomic","[unused1]","essay","an","see","making","possible","on","if","##made","man","this","project","success","the","powerful","be","can","would","forever","change","known","the","making","world","something","that","this"]
-3	[64,3,4,2,5,19,10,17,18,20,7,33,22,21,57,12,8,11,13,29,15,37,30,49,58,27,51,42,45,50,25,36,52,62,35,26,39,59,60]	[0.9197055697441101,0.8911247253417969,0.8176454901695251,0.6740192770957947,0.4016907811164856,0.22174733877182007,0.17757506668567657,0.17181575298309326,0.13840211927890778,0.12131478637456894,0.11028306186199188,0.10961507260799408,0.10454648733139038,0.09224136173725128,0.0870622918009758,0.08124534040689468,0.07745306938886642,0.06968402117490768,0.055855643004179,0.05242667347192764,0.052266497164964676,0.05212489143013954,0.04217949137091637,0.03762125223875046,0.03189852461218834,0.030985599383711815,0.028147108852863312,0.027359021827578545,0.02464357577264309,0.016960328444838524,0.014571831561625004,0.013961387798190117,0.012399033643305302,0.008177902549505234,0.008141664788126945,0.0052558667957782745,0.004244550596922636,0.002779324073344469,0.0009335094946436584]	["[SEP]","manhattan","project","the","was","the","project","to","develop","first","name","from","bomb","atomic","of","during","for","conducted","world","period","ii","2","of","army","general","to","of","control","u","corps","refers","##\u00a6","engineers","groves","a","specifically","1946","leslie","r"]
-4	[65,17,0,18,22,63,12,13,14,5,29,31,25,16,24,27,21,3,53,61,44,28,33,23,2,32,64,62,1,60,7,30,4,10,9,42,41,15,48,46,49]	[0.7581698894500732,0.47289228439331055,0.34343793988227844,0.29525288939476013,0.1325271725654602,0.10936625301837921,0.10071150213479996,0.07679782807826996,0.06413883715867996,0.04850083217024803,0.046393923461437225,0.04154641926288605,0.036663394421339035,0.027878861874341965,0.02693910337984562,0.01943339593708515,0.01909019611775875,0.017811469733715057,0.017293067649006844,0.016914064064621925,0.016236335039138794,0.016217760741710663,0.014979036524891853,0.014369970187544823,0.014133990742266178,0.013932829722762108,0.013570130802690983,0.013458751142024994,0.01262776181101799,0.012081516906619072,0.011341160163283348,0.010377838276326656,0.008177646435797215,0.0073923938907682896,0.0070190466940402985,0.006790002342313528,0.006655491888523102,0.005985959433019161,0.0030900666024535894,0.0021304399706423283,0.0013771199155598879]	["[SEP]","manhattan","[CLS]","project","history","nuclear","the","first","website","volume","history","heritage","on","##e","available","office","interactive","of","the","the","doe","of","website","##ais","versions","resources","security","national","[unused1]","and","well","and","each","websites","complementary","##o","cf","##ath","me","gov","##70"]
-5	[47,31,13,12,3,14,0,29,28,11,2,30,4,27,41,39,24,23,17,22,16,18,10,40,20,9,8,6,21,32,43,7,35,45,44]	[0.9191868901252747,0.5440348386764526,0.5322623252868652,0.5148231983184814,0.4733394980430603,0.42745447158813477,0.42509931325912476,0.3985462784767151,0.3891582190990448,0.3516280949115753,0.32610172033309937,0.3240308165550232,0.3076696991920471,0.2594428062438965,0.19479015469551086,0.1644248217344284,0.14122994244098663,0.12270689755678177,0.11430147290229797,0.09159837663173676,0.08720144629478455,0.06107419729232788,0.06048402562737465,0.05889689922332764,0.03368067368865013,0.02763255126774311,0.02722342126071453,0.02130403369665146,0.012967108748853207,0.0111695546656847,0.010455920360982418,0.009812396951019764,0.0072852796874940395,0.00664953887462616,0.0045698885805904865]	["[SEP]","on","atomic","first","manhattan","bomb","[CLS]","age","nuclear","the","the","began","project","the","in","was","##dget","ga","weapon","nicknamed","a","that","features","detonated","scientists","photograph","classified","this","had","july","new","once","1945","desert","mexico"]
-6	[44,0,41,42,40,19,26,18,1,24,15,22,23,29,4,36,34,17,3,30,20,14,32,38,6,2,31,28,16,12,35,11,7,9,13,37,8,10]	[0.9071084856987,0.5158464312553406,0.4560514986515045,0.2609138488769531,0.2605865001678467,0.19953493773937225,0.17639493942260742,0.1757853776216507,0.17447897791862488,0.1605285257101059,0.1508101224899292,0.12660998106002808,0.11994156241416931,0.0953398123383522,0.08198292553424835,0.07523218542337418,0.06296689808368683,0.05837564542889595,0.04888194799423218,0.045511458069086075,0.043041009455919266,0.04220275580883026,0.03347545117139816,0.032091833651065826,0.03149942308664322,0.0262145958840847,0.022097233682870865,0.01938917115330696,0.016186418011784554,0.013790486380457878,0.011860081925988197,0.010263001546263695,0.010164120234549046,0.008388782851397991,0.005984591785818338,0.005860771983861923,0.004816058557480574,0.0027659970801323652]	["[SEP]","[CLS]","manhattan","project","the","bombs","ii","atomic","[unused1]","world","literature","end","of","collection","it","origins","document","the","will","does","and","rich","attempt","development","to","nor","not","this","on","##ina","the","##ord","substitute","the","##rily","and","for","extra"]
-7	[99,6,7,5,8,76,20,49,19,42,21,22,10,98,85,77,27,29,23,88,14,12,15,32,55,11,17,13,30,83,34,91,66,82,70,92,87,64,96,57,93,73,80,97,65,81,74,62,40,45,71,56,67,38,72,43]	[0.9438869953155518,0.7969611287117004,0.675918459892273,0.6534038782119751,0.45817315578460693,0.24039208889007568,0.17908097803592682,0.1499844640493393,0.14692039787769318,0.1468157172203064,0.12977002561092377,0.11852744221687317,0.10942450910806656,0.10791788250207901,0.10180387645959854,0.09495294094085693,0.09383335709571838,0.07972308248281479,0.07699886709451675,0.0746336355805397,0.06741270422935486,0.06716682016849518,0.06711224466562271,0.06684393435716629,0.061505187302827835,0.05513136088848114,0.0533028170466423,0.05209073796868324,0.05170845612883568,0.040376290678977966,0.03420934081077576,0.03418796882033348,0.03303619846701622,0.029400262981653214,0.026602869853377342,0.02467496506869793,0.023878851905465126,0.023081135004758835,0.023071883246302605,0.021566368639469147,0.021386805921792984,0.020423106849193573,0.019162407144904137,0.015199702233076096,0.01490323431789875,0.01471908949315548,0.013161027804017067,0.011951819993555546,0.011451328173279762,0.011332549154758453,0.009201380424201488,0.008786119520664215,0.008642044849693775,0.007426256779581308,0.006271032150834799,0.004116761963814497]	["[SEP]","manhattan","project","the","was","the","the","was","produced","from","first","nuclear","research","the","designed","director","led","the","weapons","bombs","during","development","world","with","general","and","ii","undertaking","united","laboratory","support","army","of","##os","physicist","component","actual","army","was","groves","of","##pen","los","designated","corps","alam","##heimer","s","canada","1946","robert","leslie","engineers","kingdom","op","1942"]
-8	[28,0,2,16,17,25,26,23,7,11,9,12,10,21,20,3,24,14,4,13]	[0.9351692199707031,0.5671712756156921,0.5413563251495361,0.5127496719360352,0.46582552790641785,0.26379674673080444,0.2432439923286438,0.2115890383720398,0.13642673194408417,0.11694596707820892,0.11318454146385193,0.0926985889673233,0.09193643927574158,0.07508839666843414,0.0567486397922039,0.05074914172291756,0.03992152959108353,0.039427101612091064,0.021246057003736496,0.018206169828772545]	["[SEP]","[CLS]","in","manhattan","project","atomic","bombs","the","united","of","army","engineers","corps","name","secret","june","2","##gan","1942","##be"]
-9	[44,7,8,0,16,9,20,21,6,22,13,1,15,10,17,3,5,24,23,32,39,26,36,25,38,31,27,33,41,40,37,34,42]	[0.8852288126945496,0.8023545742034912,0.7233723998069763,0.5866222977638245,0.4581907391548157,0.4289099872112274,0.3719041347503662,0.3616696000099182,0.3491658866405487,0.3204186260700226,0.2992155849933624,0.25618457794189453,0.25293469429016113,0.1519792675971985,0.14256934821605682,0.03773079439997673,0.036985110491514206,0.02976510487496853,0.018575232475996017,0.012895860709249973,0.010824225842952728,0.01028879638761282,0.010140562430024147,0.008667110465466976,0.006356603465974331,0.005864663049578667,0.005508489441126585,0.004265638999640942,0.003963644616305828,0.003628540551289916,0.0020017847418785095,0.001786271226592362,0.001682699890807271]	["[SEP]","han","##ford","[CLS]","manhattan","was","b","reactor","reasons","was","site","[unused1]","the","selected","project","of","main","proximity","its","river","the","the","pacific","to","from","largest","columbia","flowing","american","north","ocean","into","coast"]
-```
-
 
 
 ## Step 3. Train PQA-ColBERT (pseudo-query-aware ColBERT) w/ ColBERT teacher
