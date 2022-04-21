@@ -329,7 +329,7 @@ CUDA_VISIBLE_DEVICES=0,1 python \
 
 ## Evaluation
 
-- The ranking files, for colbert (baseline) and ck_distill-colbert (ours), used in our experiments, can be downloaded [here](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing).
+- `🔄 Reproduce` The ranking files, for colbert (baseline) and ck_distill-colbert (ours), used in our experiments, can be downloaded [here](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing).
 <!-- ColBERT: ranking files -->
 <!-- scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg/rerank.py/2021-09-11_23.41.17/ranking.tsv \
 ./colbert.msmarco_pass.dev.ranking.tsv
