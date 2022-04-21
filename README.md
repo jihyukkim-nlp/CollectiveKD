@@ -1,4 +1,4 @@
-# pseudo_query_aware_colbert
+# CollectiveKD
 
 ## Data format
 
@@ -70,9 +70,9 @@ Example)
 |2          |int        | pid of positve passage (ID in `collection.tsv`)|
 |3          |int        | pid of negative passage (ID in `collection.tsv`) |
 
-**How to get positive/negative passages**
-- The *positive* passages are relevant passages to the given query determined either by click-logs or human annotators.
-- The *negative* passages are top-1000 documents retrieved by *BM25*.
+**How positive/negative passages were obtained.**
+- The *positive* passages are labeled by human annotators.
+- The *negative* passages are sampled from unlabeled passages.
 
 
 **[4] `top1000.dev`**
@@ -92,9 +92,6 @@ Example)
 |3     |str        | positive passage|
 |4     |str        | negative passage|
 
-**How to get positive/negative passages**
-- The *positive* passages are relevant passages to the given query determined either by click-logs or human annotators.
-- The *negative* passages are top-1000 documents retrieved by *BM25*.
 
 **[5] `qrels.dev.small.tsv`**
 
@@ -116,7 +113,9 @@ Example)
 
 
 
-## Step 1. Train ColBERT teacher
+## Step 1. Preliminary: Training ColBERT Teacher
+
+(You can download the checkpoint we used in our experiments, in [here (colbert.dnn)](https://drive.google.com/drive/folders/1Bk6-7KVl6bTDc-2cBtxh7PF7FNSEPjpL?usp=sharing))
 
 An example bash command for **training**:
 ```bash
@@ -132,7 +131,6 @@ CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 -
 An example bash command for **validation** (on re-ranking task):
 ```bash
 checkpoint_to_be_validated=experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-100000.dnn
-checkpoint_to_be_validated=experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-150000.dnn
 checkpoint_to_be_validated=experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-200000.dnn
 checkpoint_to_be_validated=experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-300000.dnn
 checkpoint_to_be_validated=experiments/colbert-b36-lr3e6/MSMARCO-psg/train.py/msmarco.psg.l2/checkpoints/colbert-400000.dnn
@@ -148,7 +146,7 @@ python -m colbert.test --checkpoint ${checkpoint_to_be_validated} \
 
 
 
-## Step 2. Train QD-Pruner
+## Step 2. Obtain Collective Knowledge from Pseudo-Relevance Feedback Passages 
 
 You need the following data.
 

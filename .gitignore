@@ -1,0 +1,8 @@
+experiments/
+data/
+checkpoints/
+backup/
+mlruns/
+__pycache__
+gwd.sh
+environment_setting.sh
