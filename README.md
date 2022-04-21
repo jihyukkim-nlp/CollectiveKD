@@ -1,5 +1,11 @@
 # CollectiveKD
 
+Collective Self-Labeling for Passage Retrieval
+
+This PyTorch code was used in the experiments of the research paper
+
+**[Jihyuk Kim, Minsoo Kim, and Seung-won Hwang. Collective Self-Labeling for Passage Retrieval. NAACL, 2021.]()**
+
 ## Data format
 
 You need the following data.
