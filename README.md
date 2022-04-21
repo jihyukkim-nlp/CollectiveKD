@@ -270,7 +270,6 @@ done
 ### Step 2-3: Obtaining Collective Knowledge
 
 - The collective knowledge from PRF (docs=3, clusters=24, k=10, beta=1.0) used in our experiments, can be downloaded [here (colbert.msmarco_pass.train.collective_knowledge.pt)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
-<!-- scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg-CollectiveFeedback/docs3.clusters24.k10.beta1.0/label.py/2022-01-04_21.17.26/expansion.pt ./colbert.msmarco_pass.train.collective_knowledge.pt -->
 
 An example bash command for **obtaining collective knowledge**:
 ``` bash
@@ -326,9 +325,21 @@ CUDA_VISIBLE_DEVICES=0,1 python \
 
 ## Evaluation
 
-
-- The ranking file for training queries, used in our experiments as PRF, can be downloaded [here (colbert.msmarco_pass.train.ranking.jsonl)](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing)
-
+- The ranking files, for colbert (baseline) and ck_distill-colbert (ours), used in our experiments, can be downloaded [here](https://drive.google.com/drive/folders/1YQzYKgY7uioSiUxVPgBIf4Ax3sG-mFTI?usp=sharing).
+<!-- ColBERT: ranking files -->
+<!-- scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/MSMARCO-psg/rerank.py/2021-09-11_23.41.17/ranking.tsv \
+./colbert.msmarco_pass.dev.ranking.tsv
+scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/TREC2019-psg/2021-11-04_20.35.39/ranking.tsv \
+./colbert.trec2019_pass.ranking.tsv
+scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/experiments/colbert.teacher/TREC2020-psg/2021-11-04_20.36.46/ranking.tsv \
+./colbert.trec2020_pass.ranking.tsv -->
+<!-- ck_distill-colbert: ranking files -->
+<!-- scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/\
+experiments/finetuned.b36.lr3e6.hn.kd_qe_kmeans_prf/MSMARCO-psg/rerank.py/2021-10-27_18.16.49/ranking.tsv ./ck_distill-colbert.msmarco_pass.dev.ranking.tsv
+scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/\
+experiments/finetuned.b36.lr3e6.hn.kd_qe_kmeans_prf/TREC2019-psg/rerank.py/2021-10-27_18.27.16/ranking.tsv ./ck_distill-colbert.trec2019_pass.ranking.tsv
+scp dilab4:/data1/jihyuk/Experiment/PassageRetrieval/qe_pseudo_labeling/\
+experiments/finetuned.b36.lr3e6.hn.kd_qe_kmeans_prf/TREC2020-psg/rerank.py/2021-10-27_18.32.10/ranking.tsv ./ck_distill-colbert.trec2020_pass.ranking.tsv -->
 
 An example bash command for **end-to-end ranking**:
 ``` bash
