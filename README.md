@@ -311,8 +311,8 @@ python -m preprocessing.hard_negatives.construct_new_train_triples \
 
 An example bash command for **KD training**:
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 \
-python -m torch.distributed.launch --nproc_per_node=2 --master_addr 127.0.0.1 --master_port 29500 \
+CUDA_VISIBLE_DEVICES=0,1 python \
+-m torch.distributed.launch --nproc_per_node=2 --master_addr 127.0.0.1 --master_port 29500 \
 -m colbert.train --maxsteps 600000 --amp --bsize 36 --lr 3e-06 --accum 1 \
 --doc_maxlen 180 --mask-punctuation --similarity l2 \
 --root experiments/ck_distill-colbert-b36-lr3e6 --experiment MSMARCO-psg --run msmarco.psg.l2 \
