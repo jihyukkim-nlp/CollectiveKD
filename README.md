@@ -298,11 +298,11 @@ CUDA_VISIBLE_DEVICES=0 python \
 ## Step 3. Knowledge Distill using Collective Knowledge
 
 
-### Step 3-1: Obtaining Hard Negatives
+### Step 3-1: Constructing new train triples
 
 We leverage PRF as hard negatives, to obtain better negative training samples.
 
-An example bash command for **obtaining hard negatives**:
+An example bash command for **constructing new train triples**:
 ```bash
 python -m preprocessing.hard_negatives.construct_new_train_triples \
 --hn_topk 100 --n_triples 40000000 --n_negatives 1 \
