@@ -2,7 +2,7 @@
 
 This PyTorch code was used in the experiments of the research paper
 
-**[Jihyuk Kim, Minsoo Kim, and Seung-won Hwang. Collective Relevance Labeling for Passage Retrieval. NAACL'22.]()**
+**[Jihyuk Kim, Minsoo Kim, and Seung-won Hwang. Collective Relevance Labeling for Passage Retrieval. NAACL'22]()**.
 
 ## Data format
 
