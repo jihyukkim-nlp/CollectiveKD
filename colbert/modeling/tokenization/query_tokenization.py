@@ -58,7 +58,7 @@ class QueryTokenizer():
         ids[ids == 0] = self.mask_token_id
 
         if bsize:
-            batches = _split_into_batches(ids, mask, bsize=bsize) #!@ custom
+            batches = _split_into_batches(ids, mask, bsize=bsize)
             return batches
 
         return ids, mask

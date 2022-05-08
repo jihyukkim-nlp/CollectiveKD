@@ -31,7 +31,6 @@ class ColBERT(BertPreTrainedModel):
 
         self.init_weights()
 
-    #!@ custom
     def forward(self, Q, D, Q_exp=None):
         return self.score(self.query(*Q), self.doc(*D), Q_exp=Q_exp)
 
@@ -54,11 +53,6 @@ class ColBERT(BertPreTrainedModel):
         D = torch.nn.functional.normalize(D, p=2, dim=2)
 
         if not keep_dims:
-            #!@ original
-            # D, mask = D.cpu().to(dtype=torch.float16), mask.cpu().bool().squeeze(-1)
-            # D = [d[mask[idx]] for idx, d in enumerate(D)]
-
-            #!@ custom
             mask = mask.cpu().bool().squeeze(-1)
             D = D.cpu()
             if float16: 
@@ -81,11 +75,6 @@ class ColBERT(BertPreTrainedModel):
 
                 exp_embs, exp_wts = exp_embs.to(DEVICE), exp_wts.to(DEVICE)
 
-                #?@ debugging
-                # print(f'\nQ_exp=\n\t{Q_exp} ({len(Q_exp)})')
-                # print(f'exp_embs=\n\t{exp_embs} ({exp_embs.shape})')
-                # print(f'exp_wts=\n\t{exp_wts} ({exp_wts.shape})')
-                
                 ones_wts = torch.ones(Q.size(0), Q.size(1), dtype=exp_wts.dtype, device=DEVICE)
                 Q_wts = torch.cat((ones_wts, exp_wts), dim=1) # (``bsize, query_maxlen + n_exp_embs``)
 
@@ -93,9 +82,6 @@ class ColBERT(BertPreTrainedModel):
                 
                 Q_list.append(Q)
                 Q_wts_list.append(Q_wts)
-
-            #?@ debugging
-            # exit()
 
         else:
             Q_list.append(Q)
@@ -133,10 +119,6 @@ class ColBERT(BertPreTrainedModel):
             relevance_list = []
             for _Q, _Q_wts in zip(Q_list, Q_wts_list):
 
-                #?@ debugging
-                # print(f'_Q ({_Q.shape})')
-                # print(f'_Q_wts ({_Q_wts.shape})')
-
                 _Q = _Q.unsqueeze(2).unsqueeze(1) 
                 # (bsize, 1          , query_maxlen, 1         , dim)
                 _D = D.unsqueeze(1).unsqueeze(0) 
@@ -151,23 +133,9 @@ class ColBERT(BertPreTrainedModel):
                     maxsim = maxsim * _Q_wts
                 relevance = maxsim.sum(-1) # (bsize, (k+1) * bsize)
                 
-                #?@ debugging
-                # print(f'relevance={relevance.shape}')
-                
                 relevance_list.append(relevance)
             
-            # if len(relevance_list)==1: # student
-            #     return relevance_list[0]
-            # else:
-            #     relevance_list
-            # return torch.stack(relevance_list, dim=0).mean(0)
-            # assert self.training
             return relevance_list
-            # if (Q_wts_list[0] is None):
-            #     assert len(relevance_list)==1, f'Teacher must take expansion embeddings.'
-            #     return relevance_list[0]
-            # else:
-            #     return relevance_list
         
         else: # during validation: a single Q for multiple D
             
@@ -187,66 +155,6 @@ class ColBERT(BertPreTrainedModel):
             relevance = maxsim.sum(-1) # (n_candiates)
         
             return relevance
-
-
-
-    # #!@ custom
-    # def forward(self, Q, D, Q_exp=None, inbatch_negatives=False):
-    #     return self.score(self.query(*Q), self.doc(*D), Q_exp=Q_exp, inbatch_negatives=inbatch_negatives)
-
-    # def score(self, Q, D, Q_exp=None, inbatch_negatives=False):
-    #     # Q     : (2 * bsize, query_maxlen, dim) = e.g., bsize=3 -> [Q1, Q2, Q3, Q1, Q2, Q3]
-    #     # D     : (2 * bsize, doc_maxlen, dim)   = e.g., bsize=3 -> [P1, P2, P3, N1, N2, N3]
-    #     # Q_exp : (2 * bsize, n_exp_embs, dim), (2 * bsize, n_exp_embs)
-
-    #     if (Q_exp is not None):
-    #         exp_embs, exp_wts = Q_exp
-    #         exp_embs, exp_wts = exp_embs.to(DEVICE), exp_wts.to(DEVICE)
-
-    #         ones_wts = torch.ones(Q.size(0), Q.size(1), dtype=exp_wts.dtype, device=DEVICE)
-    #         Q_wts = torch.cat((ones_wts, exp_wts), dim=1) # (2 * bsize, query_maxlen + n_exp_embs)
-
-    #         Q = torch.cat((Q, exp_embs), dim=1) # (2 * bsize, query_maxlen + n_exp_embs, dim)
-    #     else:
-    #         Q_wts = None
-
-    #     if self.similarity_metric == 'cosine':
-    #         QD = (Q @ D.permute(0, 2, 1)) # (2 * bsize, query_maxlen, doc_maxlen)
-    #         maxsim = QD.max(2).values # (2 * bsize, query_maxlen)
-    #         if (Q_wts is not None):
-    #             maxsim = maxsim * Q_wts 
-    #         relevance = maxsim.sum(1) # (2 * bsize)
-    #         return relevance
-
-    #     assert self.similarity_metric == 'l2'
-        
-    #     if inbatch_negatives:
-    #         _bsize = Q.shape[0]
-    #         #!@ custom: in-batch negatives
-    #         Q = Q[:_bsize // 2].unsqueeze(2).unsqueeze(1) 
-    #         # (bsize,   1,          query_maxlen,   1,          dim)
-    #         D = D.unsqueeze(1).unsqueeze(0) 
-    #         # (1,       2 * bsize,  1,              doc_maxlen, dim)
-    #         QD = -1.0 * (( Q - D )**2).sum(-1)
-    #         # (bsize, 2 * bsize, query_maxlen, doc_maxlen)
-    #         maxsim = QD.max(-1).values
-    #         # (bsize, 2 * bsize, query_maxlen)
-    #         if (Q_wts is not None):
-    #             Q_wts = Q_wts[:_bsize // 2].unsqueeze(1) 
-    #             # (bsize, 1,         query_maxlen)
-    #             maxsim = maxsim * Q_wts
-    #         relevance = maxsim.sum(-1) # (bsize, 2 * bsize)
-    #         return relevance
-    #         # return (-1.0 * ((Q[:Q.shape[0] // 2].unsqueeze(2).unsqueeze(1) - D.unsqueeze(1).unsqueeze(0))**2).sum(-1)).max(-1).values.sum(-1)
-        
-    #     #!@ original: pair-wise negatives
-    #     # Used for re-rank evaluation (refer to `colbert/evaluation/slow.py: slow_rerank`)
-    #     QD = -1.0 * ((Q.unsqueeze(2) - D.unsqueeze(1))**2).sum(-1) # (2 * bsize, query_maxlen, doc_maxlen)
-    #     maxsim = QD.max(-1).values # (2 * bsize, query_maxlen)
-    #     if (Q_wts is not None):
-    #         maxsim = maxsim * Q_wts # (2 * bsize, query_maxlen)
-    #     relevance = maxsim.sum(-1) # (2 * bsize)
-    #     return relevance
 
     def mask(self, input_ids):
         mask = [[(x not in self.skiplist) and (x != 0) for x in d] for d in input_ids.cpu().tolist()]

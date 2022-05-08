@@ -54,10 +54,6 @@ if __name__=='__main__':
             # select pseudo-positives using score threshold
             ups = [pid for pid, score in topk_tuples if score >= args.thr]
             
-            #?@ debugging
-            # print(f'topk_tuples: {topk_tuples}')
-            # print(f'ups: {ups}')
-
             # outfile.write(f'{qid}\t{json.dumps(ups)}\n')
             
             """
@@ -73,9 +69,6 @@ if __name__=='__main__':
                 outfile.write(f'{qid}\t0\t{pid}\t1\n')
 
             nprd.append(len(ups))
-
-            # #?@ debugging
-            # if line_idx == 10: exit()
         
         print_message(f'#> The # of positives: Min {np.min(nprd)}, Max {np.max(nprd)}, Mean {np.mean(nprd):.2f}, Median {np.median(nprd)}')
         

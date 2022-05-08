@@ -17,8 +17,7 @@ from colbert.modeling.colbert import ColBERT
 from colbert.utils.utils import print_message
 from colbert.training.utils import print_progress, manage_checkpoints
 
-# LOG_STEP = 100 #?@ debugging
-LOG_STEP = 5000 #!@ custom
+LOG_STEP = 5000
 
 
 def train(args):
@@ -31,13 +30,11 @@ def train(args):
     assert args.similarity == 'l2'
     assert args.kd_objective == 'ce'
 
-    #!@ custom
     # sanity check
     if args.kd_query_expansion:
         for kd_expansion_pt in args.kd_expansion_pt_list:
             assert os.path.exists(kd_expansion_pt)
 
-        #!@ custom: hard-coded, averaging KD losses with equal weights.
         args.kd_lambda_list = [1 / len(args.kd_expansion_pt_list) for _ in range(len(args.kd_expansion_pt_list))]
     
     if args.distributed:
@@ -62,7 +59,6 @@ def train(args):
                                       similarity_metric=args.similarity,
                                       mask_punctuation=args.mask_punctuation)
     
-    #!@ custom
     # Knowledge Distillation
     if args.knowledge_distillation:
         # Load teacher's checkpoint, for warm-start
@@ -83,7 +79,6 @@ def train(args):
 
         # assert args.resume_optimizer is False, "TODO: This would mean reload optimizer too."
         
-        #!@ custom
         if not args.resume_optimizer:
             print_message(f"#> Starting from checkpoint {args.checkpoint} -- but NOT the optimizer!")
         else:
@@ -114,7 +109,6 @@ def train(args):
     optimizer = AdamW(filter(lambda p: p.requires_grad, colbert.parameters()), lr=args.lr, eps=1e-8)
     optimizer.zero_grad()
 
-    #!@ custom
     if args.checkpoint is not None:
         if args.resume_optimizer:
             print_message(f"#> Resume optimizer!")
@@ -122,7 +116,6 @@ def train(args):
             optimizer.zero_grad()
             print(optimizer)
 
-    #!@ custom
     if args.knowledge_distillation:
             
         teacher = teacher.to(DEVICE)
@@ -134,18 +127,11 @@ def train(args):
                                                         output_device=args.rank,
                                                         find_unused_parameters=True)
     
-    #?@ debugging
-    # print(f'optimizer={optimizer}')
-    
     amp = MixedPrecisionManager(args.amp)
     criterion = nn.CrossEntropyLoss()
     
-    #!@ custom: in-batch negatives
     labels = torch.arange(args.bsize, dtype=torch.long, device=DEVICE)
     
-    #!@ original: pair-wise negatives
-    # labels = torch.zeros(args.bsize, dtype=torch.long, device=DEVICE) 
-
     start_time = time.time()
     train_loss = 0.0
 
@@ -164,34 +150,10 @@ def train(args):
         
             with amp.context():
                 
-                #?@ debugging
-                # print(f'queries[0]=\n\t{queries[0]} ({queries[0].shape})') # input_ids
-                # print(f'queries[1]=\n\t{queries[1]} ({queries[1].shape})') # attention_mask
-                # print('\n')
-                # print(f'passages[0]=\n\t{passages[0]} ({passages[0].shape})') # input_ids
-                # print(f'passages[1]=\n\t{passages[1]} ({passages[1].shape})') # attention_mask
-                # print('\n')
-                # print(f'queries_exp[0]=\n\t{queries_exp[0]} ({queries_exp[0].shape})') # qexp_embs
-                # print(f'queries_exp[1]=\n\t{queries_exp[1]} ({queries_exp[1].shape})') # qexp_wts
-                # print(f'queries_exp[0]=\n\t{queries_exp[0]} ({queries_exp[0][0].shape})') # qexp_embs
-                # print(f'queries_exp[1]=\n\t{queries_exp[1]} ({queries_exp[1][0].shape})') # qexp_wts
-                # print(f'training.py: train: exit');exit()
-
-                #!@ custom: in-batch negatives
                 scores = colbert(queries, passages)
                 # scores: float tensor (bsize, (k+1) * bsize)
                 scores = scores[0]
 
-                #!@ original: pair-wise negatives
-                # scores = colbert(queries, passages).view(2, -1).permute(1, 0)
-                # scores: float tensor (bsize, 2)
-
-                #?@ debugging
-                # print(f'scores ({scores.shape})')
-                # print(f'scores: \n\t{scores}')
-                # print(f'training.py: train: exit');exit()
-
-                #!@ custom
                 if args.knowledge_distillation:
                     with torch.no_grad():
                         teacher_scores_list = teacher(queries, passages, Q_exp = queries_exp)
@@ -208,14 +170,6 @@ def train(args):
                         # _loss: float tensor (bsize)
                         _loss = _loss.mean(0)
 
-                        #?@ debugging
-                        # print()
-                        # print(f'scores=\n\t{scores} ({scores.size()})')
-                        # print(f'soft_labels=\n\t{soft_labels} ({soft_labels.size()})')
-                        # print(f'_loss={_loss.item()}')
-                        # print(f'args.kd_lambda_list[teacher_index]={args.kd_lambda_list[teacher_index]}')
-                        # print(f'training.py: train: exit');exit()
-                        
                         loss = loss + _loss * args.kd_lambda_list[teacher_index]
 
                 else:
@@ -251,18 +205,6 @@ def train(args):
 
                 loss = loss / args.accumsteps
 
-                #?@ debugging
-                # print()
-                # print(f'scores=\n\t{scores} ({scores.size()})')
-                # print(f'soft_labels=\n\t{soft_labels} ({soft_labels.size()})')
-                # print(f'loss={loss.item()}')
-                # print(f'training.py: train: exit');exit()
-
-
-            #!@ custom: comment
-            # if args.rank < 1:
-            #     print_progress(scores)
-
             amp.backward(loss)
 
             train_loss += loss.item()
@@ -276,17 +218,12 @@ def train(args):
             num_examples_seen = (batch_idx - start_batch_idx) * args.bsize * args.nranks
             elapsed = float(time.time() - start_time)
 
-            # log_to_mlflow = (batch_idx % 20 == 0) #!@ original
-            log_to_mlflow = ((batch_idx+1) % LOG_STEP == 0) #!@ custom
+            log_to_mlflow = ((batch_idx+1) % LOG_STEP == 0)
 
             Run.log_metric('train/avg_loss', avg_loss, step=batch_idx, log_to_mlflow=log_to_mlflow)
-            # Run.log_metric('train/batch_loss', this_batch_loss, step=batch_idx, log_to_mlflow=log_to_mlflow) #!@ custom
             Run.log_metric('train/examples', num_examples_seen, step=batch_idx, log_to_mlflow=log_to_mlflow)
             Run.log_metric('train/throughput', num_examples_seen / elapsed, step=batch_idx, log_to_mlflow=log_to_mlflow)
 
-            #!@ original
-            # print_message(batch_idx, avg_loss)
-            #!@ custom
             if (batch_idx + 1) % LOG_STEP == 0:
                 print_message(batch_idx+1, avg_loss)
 

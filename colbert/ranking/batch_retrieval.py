@@ -25,8 +25,7 @@ def batch_retrieve(args):
         queries = args.queries
         qids_in_order = list(queries.keys())
 
-        # for qoffset, qbatch in batch(qids_in_order, 100_000, provide_offset=True): #!@ original: out-of-memory
-        for qoffset, qbatch in batch(qids_in_order, 10000, provide_offset=True): #!@ custom
+        for qoffset, qbatch in batch(qids_in_order, 10000, provide_offset=True):
             qbatch_text = [queries[qid] for qid in qbatch]
 
             print_message(f"#> Embedding {len(qbatch_text)} queries in parallel...")

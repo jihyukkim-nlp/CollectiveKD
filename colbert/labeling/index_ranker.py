@@ -75,10 +75,6 @@ class IndexRankerRF(IndexRanker):
             group_Q = Q if Q.size(0) == 1 else Q[locator] # (bsize, dim,  query_maxlen + exp_embs)
             group_Q_weight = Q_weight if Q.size(0)==1 else Q_weight[locator] # (bsize, query_maxlen + exp_embs)
 
-            #?@ debugging
-            # print(f'IndexRankPRF: rank: group_Q (size={group_Q.shape}, dtype={group_Q.dtype}, device={group_Q.device})')
-            # print(f'IndexRankPRF: rank: group_Q_weight (size={group_Q_weight.shape}, dtype={group_Q_weight.dtype}, device={group_Q_weight.device})')
-            
             group_offsets = group_offsets.to(VIEWS_DEVICE) - shift
             group_offsets_uniq, group_offsets_expand = torch.unique_consecutive(group_offsets, return_inverse=True)
 

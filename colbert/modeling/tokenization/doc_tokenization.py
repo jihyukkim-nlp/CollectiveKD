@@ -23,8 +23,7 @@ class DocTokenizer():
             return tokens
 
         prefix, suffix = [self.cls_token, self.D_marker_token], [self.sep_token]
-        # tokens = [prefix + lst + suffix for lst in tokens] #!@ original
-        tokens = [prefix + lst[:self.doc_maxlen-3] + suffix for lst in tokens] #!@ custom
+        tokens = [prefix + lst[:self.doc_maxlen-3] + suffix for lst in tokens]
 
         return tokens
 
@@ -57,7 +56,7 @@ class DocTokenizer():
 
         if bsize:
             ids, mask, reverse_indices = _sort_by_length(ids, mask, bsize)
-            batches = _split_into_batches(ids, mask, bsize=bsize) #!@ custom
+            batches = _split_into_batches(ids, mask, bsize=bsize)
             return batches, reverse_indices
 
         return ids, mask

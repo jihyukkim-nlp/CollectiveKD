@@ -87,9 +87,6 @@ if __name__=='__main__':
             
             ids_2d_list.append(ids)
 
-            #?@ debugging
-            # if line_idx==10:break 
-
             if len(ids_2d_list) == len(local_doclens):
                 
                 for idx, (doclen, tids) in enumerate(zip(local_doclens, ids_2d_list)):

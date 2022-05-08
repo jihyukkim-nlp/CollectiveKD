@@ -48,8 +48,6 @@ def score_by_range(positions, loaded_parts, all_query_embeddings, all_query_rank
             continue
 
         print_message(f"#> Ranking in batches the pairs #{range_start} through #{range_end}...")
-        #!@ custom
-        # scores = index.batch_rank(all_query_embeddings, query_indexes, pids, sorted_pids=True)
         scores = index.batch_rank(all_query_embeddings=all_query_embeddings, query_indexes=query_indexes, pids=pids, sorted_pids=True, all_query_weights=all_query_weights)
 
         for query_index, pid, score in zip(query_indexes.tolist(), pids.tolist(), scores):
@@ -68,7 +66,6 @@ def score_all(index, all_query_embeddings, all_query_rankings, all_pids, all_que
     pids = all_pids
     query_indexes = all_query_indexes
 
-    #!@ custom
     scores = index.batch_rank(all_query_embeddings=all_query_embeddings, query_indexes=query_indexes, pids=pids, sorted_pids=True, all_query_weights=all_query_weights)
 
     for query_index, pid, score in zip(query_indexes.tolist(), pids.tolist(), scores):
@@ -163,7 +160,6 @@ def batch_rerank(args):
 
     inference = ModelInference(args.colbert, amp=args.amp)
     colbert_prf = ColbertPRF(args=args, inference=inference)
-    # colbert_prf = ColbertPrfQDMaxsim(args=args, inference=inference) #?@ debugging
 
     queries, topK_pids = args.queries, args.topK_pids
     for qid in queries:

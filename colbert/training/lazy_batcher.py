@@ -10,7 +10,6 @@ from colbert.modeling.tokenization import QueryTokenizer, DocTokenizer, tensoriz
 from colbert.utils.runs import Run
 
 
-#!@ custom
 def load_collection(path):
     print_message("#> Loading collection...")
 
@@ -69,18 +68,10 @@ class LazyBatcher():
 
         self.triples = self._load_triples(args.triples, rank, nranks)
         self.queries = self._load_queries(args.queries)
-        
-        #!@ custom
         self.collection = load_collection(args.collection) 
         
-        #!@ custom
         self.kd_query_expansion = args.kd_query_expansion
         if self.kd_query_expansion:
-            
-            #!@ custom: single expansion embeddings
-            # self.qexp_embs, self.qexp_wts = load_expansion_pt(args.kd_expansion_pt) 
-            
-            #!@ custom: multiple expansion embeddings
             self.qexp_embs_list, self.qexp_wts_list = [], [] 
             for kd_expansion_pt in args.kd_expansion_pt_list:
                 qexp_embs, qexp_wts = load_expansion_pt(kd_expansion_pt)
@@ -109,11 +100,6 @@ class LazyBatcher():
         with open(path) as f:
             for line_idx, line in enumerate(f):
                 if line_idx % nranks == rank:
-                    #!@ original: single negative sample
-                    # qid, pos, neg = ujson.loads(line)
-                    # triples.append((qid, pos, neg))
-
-                    #!@ custom: multiple negative samples
                     qid, pos, *negs = ujson.loads(line)
                     triples.append((qid, pos, negs))
 
@@ -149,21 +135,10 @@ class LazyBatcher():
 
         for position in range(offset, endpos):
             
-            #!@ original
-            # query, pos, neg = self.triples[position] 
-            # query, pos, neg = self.queries[query], self.collection[pos], self.collection[neg]
-
-            #!@ custom
-            # qid, ppid, npid = self.triples[position]
-            # qid, ppid, npid = int(qid), int(ppid), int(npid)
-            # query, pos, neg = self.queries[qid], self.collection[ppid], self.collection[npid]
-
-            #!@ custom
             qid, ppid, npids = self.triples[position]
             query, pos = self.queries[qid], self.collection[ppid]
             negs = [self.collection[npid] for npid in npids]
 
-            #!@ custom
             if (self.static_supervision is not None):
                 pos_score = self.static_supervision[qid][ppid]
                 neg_scores = [self.static_supervision[qid][npid] for npid in npids]
@@ -173,15 +148,8 @@ class LazyBatcher():
                 pos = (pos, None)
                 negs = list(zip(negs, [None]*len(negs)))
 
-            #!@ custom
             if self.kd_query_expansion:
 
-                #!@ custom: single expansion embeddings
-                # qexp_embs = self.qexp_embs[qid] # tensor (exp_embs, dim)
-                # qexp_wts = self.qexp_wts[qid] # tensor (exp_embs)
-                # query = (query, qexp_embs, qexp_wts)
-                
-                #!@ custom: multiple expansion embeddings
                 qexp_embs_list, qexp_wts_list = [], [] 
                 for qexp_embs, qexp_wts in zip(self.qexp_embs_list, self.qexp_wts_list):
                     qexp_embs_list.append(qexp_embs[qid]) # tensor (exp_embs, dim)

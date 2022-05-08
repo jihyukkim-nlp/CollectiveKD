@@ -37,8 +37,7 @@ class ModelInference():
         input_ids, attention_mask = self.query_tokenizer.tensorize(queries)
         return self.query(input_ids, attention_mask)
 
-    # def docFromText(self, docs, bsize=None, keep_dims=True, to_cpu=False): #!@ original
-    def docFromText(self, docs, bsize=None, keep_dims=True, to_cpu=False, float16=True): #!@ custom
+    def docFromText(self, docs, bsize=None, keep_dims=True, to_cpu=False, float16=True):
         # docs: List[str] = list of passages
         
         if bsize:
@@ -56,7 +55,6 @@ class ModelInference():
             return [D[idx] for idx in reverse_indices.tolist()]
 
         input_ids, attention_mask = self.doc_tokenizer.tensorize(docs)
-        #!@ custom
         return self.doc(input_ids, attention_mask, keep_dims=keep_dims, float16=False)
 
     def score(self, Q, D, mask=None, lengths=None, explain=False):

@@ -115,19 +115,6 @@ def load_topK_pids(topK_path, qrels):
 
             topK_pids[qid].append(pid)
 
-            #!@ custom: make the following code as comment (il-formed; rest[-1]!=label)
-            # topK_positives will be assigned with qrels
-            """
-            assert len(rest) in [1, 2, 3]
-            if len(rest) > 1:
-                *_, label = rest
-                label = int(label)
-                assert label in [0, 1]
-
-                if label >= 1:
-                    topK_positives[qid].append(pid)
-            """
-
         print()
 
     assert all(len(topK_pids[qid]) == len(set(topK_pids[qid])) for qid in topK_pids)

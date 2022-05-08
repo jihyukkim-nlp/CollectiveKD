@@ -50,9 +50,6 @@ class IndexPart():
             tensor[offset:endpos] = part
             offset = endpos
 
-            # #?@ debugging
-            # if idx==0:break
-
         return tensor
 
     def pid_in_range(self, pid):

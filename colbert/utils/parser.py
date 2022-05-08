@@ -31,7 +31,6 @@ class Arguments():
         self.add_argument('--mask-punctuation', dest='mask_punctuation', default=False, action='store_true')
 
     def add_model_training_parameters(self):
-        #!@ custom
         self.add_argument('--knowledge_distillation', action='store_true',
                         help="Whether to use knowledge distillation, \
                             where the student is ColBERT \
@@ -44,9 +43,6 @@ class Arguments():
         
         self.add_argument('--kd_query_expansion', action='store_true', help="Whether to use query expansion for knowledge distillation from teacher.")
         
-        #!@ custom: single expansion embeddings
-        # self.add_argument('--kd_expansion_pt', type=str, help="Path to expansion.pt")
-        #!@ custom: multiple expansion embeddings
         self.add_argument('--kd_expansion_pt_list', type=str, help="Path to expansion.pt", nargs="+")
         self.add_argument('--kd_lambda_list', type=float, help="KD loss weight for each expansion.pt", nargs="+")
         

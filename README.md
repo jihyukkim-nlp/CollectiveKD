@@ -4,6 +4,8 @@ This PyTorch code was used in the experiments of the research paper
 
 **[Jihyuk Kim, Minsoo Kim, and Seung-won Hwang. Collective Relevance Labeling for Passage Retrieval. NAACL'22]()**.
 
+Our implementation is adapted from [ColBERT](https://github.com/stanford-futuredata/ColBERT)'s implementation. Thanks to the contributors of ColBERT :)
+
 ## Data format
 
 You need the following data.

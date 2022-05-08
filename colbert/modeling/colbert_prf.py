@@ -19,27 +19,6 @@ import queue
 from colbert.indexing.loaders import get_parts
 
 from sklearn.cluster import KMeans
-# class FaissKMeans:
-#     def __init__(self, n_clusters=10, n_init=10, max_iter=300):
-#         self.n_clusters = n_clusters
-#         self.n_init = n_init
-#         self.max_iter = max_iter
-#         self.kmeans = None
-#         self.cluster_centers_ = None
-#         self.inertia_ = None
-
-#     def fit(self, X):
-#         self.kmeans = faiss.Kmeans(d=X.shape[1],
-#                                    k=self.n_clusters,
-#                                    niter=self.max_iter,
-#                                    nredo=self.n_init)
-#         self.kmeans.train(X.astype(np.float32))
-#         self.cluster_centers_ = self.kmeans.centroids
-#         self.inertia_ = self.kmeans.obj[-1]
-
-#     # def predict(self, X):
-#     #     return self.kmeans.index.search(X.astype(np.float32), 1)[1]
-
     
 from colbert.labeling.faiss_index import FaissIndex
 from colbert.labeling.index_part import IndexPartRF
@@ -95,7 +74,6 @@ class ColbertPRF():
 
         def _loader_thread(index_path, dim, positions):
             for offset, endpos in positions:
-                #!@ custom: for query term weighting
                 index = IndexPartRF(index_path, dim=dim, part_range=range(offset, endpos), verbose=True)
                 loaded_parts.put(index, block=True)
 
@@ -146,7 +124,7 @@ class ColbertPRF():
         """
         return self.faiss_index.dfs[tid].item()
 
-    #!@ custom: main function: (query token embeddings for a query, pids for expansion) -> (exp_embs, exp_weights, exp_tokens)
+    #!@ custom: (query token embeddings for a query, pids for expansion) -> (exp_embs, exp_weights, exp_tokens)
     def expand(self, q_embs, fb_pids=None):
         # q_embs: float32 tensor, (query_maxlen, dim)
         q_embs = q_embs.unsqueeze(0)
@@ -161,11 +139,7 @@ class ColbertPRF():
             # List[ 2d tensor ]
         
         else:
-            #TODO: we need IndexRanker
             raise NotImplementedError
-            # Retrieve candidates for feedback documents
-            fb_pids = self.retrieve(q_embs, verbose=False)[0]
-            # time for retrieve: 0.03 ~ 0.06 seconds
 
         # concatenate all token embeddings in the feedback documents
         fb_embs_concat = torch.cat(fb_embs, dim=0)
@@ -175,7 +149,7 @@ class ColbertPRF():
 
         # Prepare initial centroid embeddings for effective, efficient K-means clustering
         if self.kmeans_init=='avg_step_position':
-            #?@ option 1: init from all fb_embs
+            # init from all fb_embs
             if len(fb_embs) > 1:
                 _cluster_indices = np.linspace(0, n_clusters, len(fb_embs)+1).astype(np.int64)
                 sts, eds = _cluster_indices[:-1], _cluster_indices[1:]
@@ -189,7 +163,7 @@ class ColbertPRF():
                 centroids_init = fb_embs_concat[_step_positions, :].cpu().data.numpy()
         
         elif self.kmeans_init=='top1_step_position':
-            #?@ option 2: init from the top-1 ranked fb_embs
+            # init from the top-1 ranked fb_embs
             _top1_fb_embs = fb_embs[0]
             _step_positions = np.linspace(0, len(_top1_fb_embs)-1, n_clusters).astype(np.int64)
             centroids_init = _top1_fb_embs[_step_positions, :].cpu().data.numpy()
@@ -203,8 +177,6 @@ class ColbertPRF():
         else:
             kmn = KMeans(n_clusters)
         kmn.fit(fb_embs_concat.cpu().numpy())
-        # kmn = FaissKMeans(n_clusters=n_clusters)
-        # kmn.fit(fb_embs_concat)
         centroids = np.float32(kmn.cluster_centers_)
 
         # Search nearest neighbor tokens to the centroids, from the tokens in the entire collection
@@ -247,103 +219,3 @@ class ColbertPRF():
 
 
 
-
-if __name__=='__main__':
-    """
-awk '{ print $1 }' /hdd/jihyuk/DataCenter/MSMARCO/qrels.dev.small.tsv | uniq -c | sort -nr |head
-    4 810394
-    4 592235
-    4 565696
-    4 504335
-    4 457622
-    4 456551
-    4 174592
-    4 1084838
-    3 899800
-    3 887398
-    
-cat /hdd/jihyuk/DataCenter/MSMARCO/qrels.dev.small.tsv | grep -w "810394"
-    810394  0       7966804 1
-    810394  0       764872  1
-    810394  0       7966805 1
-    810394  0       7966808 1
-
-cat /hdd/jihyuk/DataCenter/MSMARCO/queries.dev.small.tsv | grep -w "810394"
-    810394  what is the cause of the symptoms nausea throwing up
-
-sed -n "7966805p" /hdd/jihyuk/DataCenter/MSMARCO/collection.tsv 
-    7966804 Viral gastroenteritis Gastroenteritis (stomach flu) is a viral condition that causes diarrhea and vomiting. Giardiasis Giardiasis is an infection of the small intestine causing diarrhea, gas, bloating, nausea and stomach cramps.
-sed -n "764873p" /hdd/jihyuk/DataCenter/MSMARCO/collection.tsv 
-    764872  Nausea and vomiting may also occur when there are metabolic changes in the body, such as during early pregnancy, or when people have diabetes that is severely out of control or severe liver failure or kidney failure. Psychologic problems also can cause nausea and vomiting (known as functional or psychogenic vomiting).
-sed -n "7966806p" /hdd/jihyuk/DataCenter/MSMARCO/collection.tsv 
-    7966805 In such disorders (for example, appendicitis or pancreatitis), it is typically the pain rather than the vomiting that causes people to seek medical care. Many drugs, including alcohol, opioid analgesics (such as morphine), and chemotherapy drugs, can cause nausea and vomiting.
-sed -n "7966809p" /hdd/jihyuk/DataCenter/MSMARCO/collection.tsv 
-    7966808 Nausea is a sensation of unease and discomfort in the upper stomach with an involuntary urge to vomit. It may precede vomiting, but a person can have nausea without vomiting. When prolonged, it is a debilitating symptom. Nausea is a non-specific symptom, which means that it has many possible causes. Some common causes of nausea are motion sickness, dizziness, migraine, fainting, low blood sugar, gastroenteritis (stomach infection) or food poisoning.
-
-
-exp_thr=0.5, exp_embs=10, exp_beta=0.5, exp_mmr_thr=0.9
-exp_embs (10, 128) (torch.float32)
-exp_weights (10,) (torch.float32) = 
-        [0.468, 0.457, 0.451, 0.45, 0.446, 0.446, 0.438, 0.433, 0.431, 0.428]
-exp_tokens (10) = 
-        ['nausea', '[CLS]', '[SEP]', 'causes', '[SEP]', 'and', 'causes', 'as', 'vomiting', 'or']
-expand_a_query_using_colbert_rf... elapsed: 0.024 sec (real) / 0.180 sec (cpu)                                                                                                     
-    """
-    
-    
-    query = "what is the cause of the symptoms nausea throwing up"
-    relevant_passages = [
-        "Viral gastroenteritis Gastroenteritis (stomach flu) is a viral condition that causes diarrhea and vomiting. Giardiasis Giardiasis is an infection of the small intestine causing diarrhea, gas, bloating, nausea and stomach cramps.",
-        "Nausea and vomiting may also occur when there are metabolic changes in the body, such as during early pregnancy, or when people have diabetes that is severely out of control or severe liver failure or kidney failure. Psychologic problems also can cause nausea and vomiting (known as functional or psychogenic vomiting).",
-        "In such disorders (for example, appendicitis or pancreatitis), it is typically the pain rather than the vomiting that causes people to seek medical care. Many drugs, including alcohol, opioid analgesics (such as morphine), and chemotherapy drugs, can cause nausea and vomiting.",
-        "Nausea is a sensation of unease and discomfort in the upper stomach with an involuntary urge to vomit. It may precede vomiting, but a person can have nausea without vomiting. When prolonged, it is a debilitating symptom. Nausea is a non-specific symptom, which means that it has many possible causes. Some common causes of nausea are motion sickness, dizziness, migraine, fainting, low blood sugar, gastroenteritis (stomach infection) or food poisoning.",
-    ]
-
-    from types import SimpleNamespace
-    args = SimpleNamespace()
-
-    args.index_path = 'experiments/colbert.teacher/MSMARCO-psg/index.py/MSMARCO.L2.32x200k/'
-    args.faiss_index_path = 'experiments/colbert.teacher/MSMARCO-psg/index.py/MSMARCO.L2.32x200k/ivfpq.32768.faiss'
-    args.nprobe = 32
-    args.part_range = None
-
-    # args.collection = '/workspace/DataCenter/PassageRanking/MSMARCO/collection.tsv'
-    # from colbert.training.lazy_batcher import load_collection
-    # args.collection = load_collection(args.collection)
-
-    args.query_maxlen = 32
-    args.doc_maxlen = 180
-    args.dim = 128
-    args.similarity = 'l2'
-    args.mask_punctuation = True
-    args.checkpoint = 'data/checkpoints/colbert.teacher.dnn'
-    from colbert.evaluation.load_model import load_model
-    inference = ModelInference(colbert=load_model(args)[0])
-
-    args.fb_docs=3
-    args.fb_clusters=24
-    args.fb_k=10
-    args.beta=0.5
-    colbert_prf = ColbertPRF(args=args, inference=inference, faiss_depth=1024)
-
-    from pilot_test.time_consumption.utils import elapsed
-    @elapsed
-    def test_execute():
-        # q_embs = inference.queryFromText(queries=[query])
-
-        # return colbert_prf.expand(q_embs=q_embs, fb_pids=[7966804, 764872, 7966805])
-        return colbert_prf.expandFromText(query, fb_pids=[0,1,2]) #?@ debugging
-        # return colbert_prf.expandFromText(query, fb_pids=[7966804, 764872, 7966805, 7966808])
-        # return colbert_prf.expandFromText(query, fb_pids=[7966804, 764872, 7966805])
-        # return colbert_prf.expandFromText(query, fb_pids=None)
-    
-    for _ in range(10):
-        q_embs, exp_embs, exp_weights, exp_tokens = test_execute()
-    
-    #?@ debugging
-    print(f'fb_docs={args.fb_docs}, fb_clusters={args.fb_clusters}, fb_k={args.fb_k}, beta={args.beta}')
-    print(f'query: {query}')
-    print(f'q_embs {tuple(q_embs.size())} ({q_embs.dtype})')
-    print(f'exp_embs {tuple(exp_embs.size())} ({exp_embs.dtype})')
-    print(f'exp_weights {tuple(exp_weights.size())} ({exp_weights.dtype}) = \n\t{[float(str(x)[:5]) for x in exp_weights.tolist()]}')
-    print(f'exp_tokens ({len(exp_tokens)}) = \n\t{exp_tokens}')

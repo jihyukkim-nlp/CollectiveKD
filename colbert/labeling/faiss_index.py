@@ -68,10 +68,7 @@ class FaissIndex():
 
         print_message("len(self.emb2pid) =", len(self.emb2pid))
 
-        #!@ original
-        # self.parallel_pool = Pool(16)
-
-        #!@ custom: Newly added codes for PRF
+        # Codes for PRF
         print_message("#> Building the emb2tid mapping..")
         self.emb2tid = load_tokenids(index_path)
         self.tok = self.inference.query_tokenizer.tok
@@ -146,13 +143,6 @@ class FaissIndex():
 
         print_message("#> Removing duplicates (in parallel if large enough)..", condition=verbose)
 
-        #!@ original
-        # if len(all_pids) > 5000:
-        #     all_pids = list(self.parallel_pool.map(uniq, all_pids))
-        # else:
-        #     all_pids = list(map(uniq, all_pids))
-        
-        #!@ custom
         all_pids = list(map(uniq, all_pids))
 
         print_message("#> Done with embedding_ids_to_pids().", condition=verbose)

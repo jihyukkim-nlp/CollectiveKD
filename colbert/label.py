@@ -151,17 +151,6 @@ def main():
         qids_in_order = list(args.queries.keys())
         # qids_in_order: List[int] = list of qids (in order)
 
-        # #?@ debugging
-        # _debugging_qid_set = set(qids_in_order[:17])
-        # for qid in list(args.queries.keys()):
-        #     if qid not in _debugging_qid_set:
-        #         del args.queries[qid]
-        #         if qid in args.qrels:
-        #             del args.qrels[qid]
-        #         # if qid in args.topK_pids:
-        #         #     del args.topK_pids[qid]
-        # qids_in_order = list(args.queries.keys())
-
         if not args.expansion_only:
             args.topK_pids, args.qrels = load_topK_pids(args.topK, qrels=args.qrels)
             # filter_by_qrels(args.topK_pids, qrels=args.qrels)

@@ -33,9 +33,6 @@ class CollectionEncoder():
         maximum_subset_size = max(minimum_subset_size, maximum_subset_size)
         self.possible_subset_sizes = [int(maximum_subset_size)]
         
-        #?@ debugging
-        # self.possible_subset_sizes = [10000] 
-
         self.print_main("#> Local args.bsize =", args.bsize)
         self.print_main("#> args.index_root =", args.index_root)
         self.print_main(f"#> self.possible_subset_sizes = {self.possible_subset_sizes}")
@@ -75,17 +72,8 @@ class CollectionEncoder():
             batch = self._preprocess_batch(offset, lines)
             # batch: List[str] = list of passages
             
-            #?@ debugging
-            # print(f'batch[0]=\n\t{batch[0]}') 
-            # print(f'batch[1]=\n\t{batch[1]}')
-            
             embs, doclens = self._encode_batch(batch_idx, batch)
             
-            #?@ debugging
-            # print(f'embs.shape={embs.shape}')
-            # print(f'doclens[:10]={doclens[:10]}')
-            # print(f'CollectionEncoder: _encode_batch: exit');exit()
-
             t2 = time.time()
             self.saver_queue.put((batch_idx, embs, offset, doclens))
 
@@ -99,9 +87,6 @@ class CollectionEncoder():
                           f'Passages/min: {overall_throughput} (overall), ',
                           f'{this_encoding_throughput} (this encoding), ',
                           f'{this_saving_throughput} (this saving)')
-            
-            #?@ debugging
-            # print(f'CollectionEncoder: encode: exit');exit() 
 
         self.saver_queue.put(None)
 
@@ -145,11 +130,6 @@ class CollectionEncoder():
 
             assert len(passage) >= 1
 
-            #!@ custom: comment
-            # if len(other) >= 1:
-            #     title, *_ = other
-            #     passage = title + ' | ' + passage
-
             batch.append(passage)
 
             # assert pid == 'id' or int(pid) == line_idx
@@ -163,20 +143,8 @@ class CollectionEncoder():
             assert type(embs) is list
             assert len(embs) == len(batch)
 
-            #?@ debugging
-            # print(f'embs[0] ({len(embs[0])})')
-
             local_doclens = [d.size(0) for d in embs]
             embs = torch.cat(embs)
-
-            #TODO: save token ids of documents
-            # embs, ids = self.inference.docFromText(batch, bsize=self.args.bsize, keep_dims=False, with_ids=True)
-            # for idx, (doclen, tids) in enumerate(zip(local_doclens, ids)):
-            #     assert len(tids) == doclen, (idx, len(tids), doclen)
-            # ids = torch.cat(ids)
-
-            #?@ debugging
-            # print(f'embs ({embs.shape})')
 
         return embs, local_doclens
 
