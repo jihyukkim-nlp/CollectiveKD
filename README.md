@@ -2,7 +2,7 @@
 
 This PyTorch code was used in the experiments of the research paper
 
-**[Jihyuk Kim, Minsoo Kim, and Seung-won Hwang. Collective Relevance Labeling for Passage Retrieval. NAACL'22]()**.
+**[Jihyuk Kim, Minsoo Kim, and Seung-won Hwang. Collective Relevance Labeling for Passage Retrieval. NAACL'22](https://aclanthology.org/2022.naacl-main.305/)**.
 
 Our implementation is adapted from [ColBERT](https://github.com/stanford-futuredata/ColBERT) and [ColBERT-PRF](https://github.com/terrierteam/pyterrier_colbert). Thanks to the contributors for the awesome codes! :)
 
