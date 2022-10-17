@@ -385,3 +385,29 @@ python -m utility.evaluate.trec_format_evaluation \
 --qrels /path/to/[2019/2020]qrels-pass.txt \
 --ranking /path/to/MSMARCO-psg/rerank.py/trec[2019/2020]/ranking.tsv
 ```
+
+
+### Citation
+
+To cite the paper/code, please use this BibTex:
+
+```
+@inproceedings{kim-etal-2022-collective,
+    title = "Collective Relevance Labeling for Passage Retrieval",
+    author = "Kim, Jihyuk  and
+      Kim, Minsoo  and
+      Hwang, Seung-won",
+    booktitle = "Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+    month = jul,
+    year = "2022",
+    address = "Seattle, United States",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2022.naacl-main.305",
+    doi = "10.18653/v1/2022.naacl-main.305",
+    pages = "4141--4147",
+}
+```
+
+
+
+
